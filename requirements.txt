@@ -1,0 +1,10 @@
+# ── Python dependencies ──────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9      # For FastAPI File uploads
+httpx>=0.27.0                # Async HTTP (YouTube API)
+jsonlines>=4.0.0             # JSONL dataset storage
+pdfminer.six>=20221105       # PDF text extraction
+dspy-ai>=2.4.0               # DSPy framework
+google-generativeai>=0.7.0   # Gemini via DSPy Google LM
+openai-whisper>=20231117     # Whisper STT (optional, needs ffmpeg)

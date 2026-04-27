@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personalized Study — VARK</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0d0f14;
+  --surface:   #161920;
+  --card:      #1c2030;
+  --card2:     #202436;
+  --border:    #2a2f45;
+  --border2:   #323756;
+  --accent-v:  #6c8fff;
+  --accent-a:  #ff7c5c;
+  --accent-r:  #5cd6b0;
+  --accent-k:  #f5c842;
+  --text:      #e8eaf2;
+  --text-muted:#7a80a0;
+  --text-dim:  #4a5070;
+  --white:     #ffffff;
+  --left-w:    255px;
+  --radius:    10px;
+  --radius-lg: 16px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Sarabun', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── TOP NAV ── */
+.topnav {
+  height: 50px;
+  min-height: 50px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 10px;
+  z-index: 100;
+}
+.topnav-logo {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-v);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.topnav-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+.topnav-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topnav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 100px;
+  border: 1.5px solid;
+  white-space: nowrap;
+}
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'Sarabun', sans-serif;
+  padding: 4px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.back-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ── WORKSPACE ── */
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── LEFT COLUMN ── */
+.left-col {
+  width: var(--left-w);
+  min-width: 140px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* ── RESIZE HANDLE ── */
+.col-resizer {
+  position: absolute;
+  top: 0; right: -4px;
+  width: 8px; height: 100%;
+  cursor: col-resize;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.col-resizer-line {
+  width: 2px; height: 44px;
+  background: var(--border2);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.18s, background 0.18s, height 0.18s;
+}
+.col-resizer:hover .col-resizer-line,
+.col-resizer.is-dragging .col-resizer-line {
+  opacity: 1;
+  background: var(--accent-v);
+  height: 64px;
+}
+body.col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.col-resizing * { pointer-events: none !important; }
+
+/* PDF Tabs header */
+.pdf-tabs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.pdf-tabs-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.btn-add-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(108,143,255,0.12);
+  border: 1px solid rgba(108,143,255,0.3);
+  color: var(--accent-v);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.btn-add-pdf input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-add-pdf:hover { background: rgba(108,143,255,0.22); }
+
+/* Tab list */
+.pdf-tab-list {
+  max-height: 195px;
+  overflow-y: auto;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-tab-list::-webkit-scrollbar { width: 3px; }
+.pdf-tab-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.pdf-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.18s;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.pdf-tab-item:hover { background: rgba(255,255,255,0.05); }
+.pdf-tab-item.active {
+  background: rgba(108,143,255,0.1);
+  border-color: rgba(108,143,255,0.3);
+}
+.pdf-tab-icon { font-size: 14px; flex-shrink: 0; opacity: 0.65; }
+.pdf-tab-item.active .pdf-tab-icon { opacity: 1; }
+.pdf-tab-meta { flex: 1; min-width: 0; }
+.pdf-tab-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdf-tab-item.active .pdf-tab-name { color: var(--white); }
+.pdf-tab-pages {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.pdf-tab-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.pdf-tab-item:hover .pdf-tab-remove { opacity: 1; }
+.pdf-tab-remove:hover { color: var(--accent-a); background: rgba(255,124,92,0.1); }
+.pdf-tabs-empty {
+  padding: 14px 12px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+/* PDF viewer below tabs */
+.pdf-viewer-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0e1016;
+}
+.viewer-toolbar {
+  height: 36px;
+  min-height: 36px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 7px;
+}
+.viewer-filename {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-nav { display: flex; align-items: center; gap: 4px; }
+.page-btn {
+  width: 22px; height: 22px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.page-btn:hover:not(:disabled) { border-color: var(--accent-v); color: var(--accent-v); }
+.page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.page-info {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  white-space: nowrap;
+}
+.pdf-canvas-wrap {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  gap: 6px;
+}
+.pdf-canvas-wrap::-webkit-scrollbar { width: 3px; }
+.pdf-canvas-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.pdf-page-canvas {
+  max-width: 100%;
+  box-shadow: 0 2px 14px rgba(0,0,0,0.6);
+  border-radius: 2px;
+  display: block;
+}
+/* keep old id selector for compatibility */
+#pdf-canvas { display: none; }
+.viewer-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+}
+.viewer-empty .ve-icon { font-size: 38px; }
+.viewer-empty p { font-size: 11px; line-height: 1.7; }
+
+/* ── CENTER STUDY PANEL ── */
+.study-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.study-tabs {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 6px;
+  gap: 2px;
+  min-height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.study-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: 'Sarabun', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+  height: 44px;
+}
+.study-tab:hover { color: var(--text-muted); }
+.study-tab.active { color: var(--accent-v); border-bottom-color: var(--accent-v); }
+
+/* VARK legend */
+.vark-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-right: 10px;
+}
+.vark-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+.vark-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* Generate bar */
+.generate-bar {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+.topic-input {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Sarabun', sans-serif;
+  font-size: 12px;
+  padding: 8px 11px;
+  border-radius: 7px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+  height: 34px;
+  line-height: 1.4;
+}
+.topic-input:focus { border-color: rgba(108,143,255,0.4); }
+.topic-input::placeholder { color: var(--text-dim); }
+.btn-mic {
+  height: 34px; width: 34px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.btn-mic:hover { border-color: var(--accent-a); color: var(--accent-a); }
+.btn-mic.recording {
+  background: rgba(255,124,92,0.12);
+  border-color: var(--accent-a);
+  color: var(--accent-a);
+  animation: pulse-mic 1s ease infinite;
+}
+@keyframes pulse-mic {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,124,92,0.4); }
+  50%      { box-shadow: 0 0 0 5px rgba(255,124,92,0); }
+}
+.btn-generate {
+  height: 34px;
+  padding: 0 14px;
+  background: linear-gradient(135deg, var(--accent-v), #a78bff);
+  border: none;
+  border-radius: 7px;
+  color: var(--white);
+  font-family: 'Sarabun', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-generate:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(108,143,255,0.3); }
+.btn-generate:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Study body */
+.study-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+.study-body::-webkit-scrollbar { width: 4px; }
+.study-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── VARK Sections ── */
+.vark-section {
+  margin-bottom: 22px;
+  padding: 14px 15px;
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.018);
+}
+
+.vark-section-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 3px 9px;
+  border-radius: 100px;
+  margin-bottom: 10px;
+  border: 1px solid;
+}
+
+/* Guide markdown */
+.guide-content { font-size: 0.9rem; line-height: 1.85; color: var(--text); }
+.guide-content h1,.guide-content h2,.guide-content h3 { color: var(--white); font-weight: 700; margin: 16px 0 7px; line-height: 1.3; }
+.guide-content h1 { font-size: 1.1rem; }
+.guide-content h2 { font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+.guide-content h3 { font-size: 0.92rem; color: var(--accent-v); }
+.guide-content p { margin-bottom: 9px; }
+.guide-content ul,.guide-content ol { padding-left: 18px; margin-bottom: 9px; }
+.guide-content li { margin-bottom: 4px; }
+.guide-content strong { color: var(--white); font-weight: 700; }
+.guide-content em { color: var(--accent-r); font-style: italic; }
+.guide-content code {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  background: rgba(255,255,255,0.07); padding: 2px 5px;
+  border-radius: 4px; color: var(--accent-r);
+}
+.guide-content pre {
+  background: #080a0e; border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+  overflow-x: auto; margin-bottom: 11px;
+}
+.guide-content pre code { background: none; padding: 0; }
+.guide-content table { width: 100%; border-collapse: collapse; margin-bottom: 11px; font-size: 12px; }
+.guide-content th,.guide-content td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; }
+.guide-content th { background: rgba(255,255,255,0.04); color: var(--white); font-weight: 700; }
+.guide-content tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.guide-content blockquote { border-left: 3px solid var(--accent-v); padding: 7px 13px; background: rgba(108,143,255,0.05); border-radius: 0 6px 6px 0; margin-bottom: 9px; color: var(--text-muted); }
+.guide-content hr { border: none; border-top: 1px solid var(--border); margin: 13px 0; }
+
+/* Visual Image Gallery */
+.visual-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+  margin: 14px 0 6px;
+}
+.visual-img-card {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  aspect-ratio: 4/3;
+  cursor: pointer;
+  transition: border-color 0.18s, transform 0.18s;
+}
+.visual-img-card:hover { border-color: var(--accent-v); transform: scale(1.02); }
+.visual-img-card img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.visual-img-alt {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card2);
+  font-size: 10px; color: var(--text-muted);
+  text-align: center; padding: 6px; line-height: 1.4;
+}
+.visual-img-source {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.65);
+  font-size: 9px; color: rgba(255,255,255,0.6);
+  padding: 3px 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.visual-gallery-header {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; font-family: 'IBM Plex Mono', monospace;
+  color: var(--accent-v); margin-bottom: 7px; display: flex; align-items: center; gap: 5px;
+}
+
+/* Like bar */
+.like-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 16px; padding: 11px 14px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.like-bar-label { font-size: 12px; color: var(--text-muted); flex: 1; }
+.btn-like {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px; background: transparent;
+  border: 1.5px solid var(--border); color: var(--text-muted);
+  border-radius: 7px; font-size: 12px; font-family: 'Sarabun', sans-serif;
+  font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn-like:hover { border-color: var(--accent-k); color: var(--accent-k); background: rgba(245,200,66,0.06); }
+.btn-like.liked { background: rgba(245,200,66,0.12); border-color: var(--accent-k); color: var(--accent-k); }
+
+/* Summary */
+.summary-wrap { display: flex; flex-direction: column; gap: 11px; }
+.summary-kv {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 13px; background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.summary-kv-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.summary-kv-body { flex: 1; min-width: 0; }
+.summary-kv-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; font-family: 'IBM Plex Mono', monospace; margin-bottom: 4px;
+}
+.summary-kv-text { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+/* YouTube — compact horizontal cards */
+.yt-grid { display: flex; flex-direction: column; gap: 8px; }
+.yt-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; transition: all 0.2s;
+  display: flex; flex-direction: row; align-items: stretch;
+}
+.yt-card:hover { border-color: rgba(108,143,255,0.3); }
+.yt-card.playing { border-color: var(--accent-v); flex-direction: column; }
+
+/* thumbnail — compact fixed size */
+.yt-thumb {
+  width: 120px; min-width: 120px; aspect-ratio: 16/9; object-fit: cover;
+  display: block; background: var(--surface); cursor: pointer; flex-shrink: 0;
+}
+/* embed takes over full card when playing */
+.yt-embed-wrap { width: 100%; aspect-ratio: 16/9; background: #000; display: none; }
+.yt-embed-wrap iframe { width: 100%; height: 100%; border: none; }
+.yt-card.playing .yt-embed-wrap { display: block; }
+.yt-card.playing .yt-thumb { display: none; }
+
+.yt-footer {
+  padding: 8px 10px; display: flex; align-items: center;
+  gap: 8px; flex: 1; min-width: 0;
+}
+.yt-info { flex: 1; min-width: 0; }
+.yt-vark-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700;
+  padding: 1px 6px; border-radius: 100px; border: 1px solid; margin-bottom: 0;
+}
+/* Multimodal tag row */
+.yt-vark-tags {
+  display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 4px; min-height: 16px;
+}
+/* AI-analyzing shimmer skeleton */
+.yt-tag-skel {
+  display: inline-block;
+  width: 50px; height: 14px;
+  background: linear-gradient(90deg, var(--card2) 25%, var(--border2) 50%, var(--card2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  border-radius: 100px;
+}
+.yt-tag-skel:nth-child(2) { width: 36px; }
+.yt-title {
+  font-size: 11px; font-weight: 600; color: var(--white); line-height: 1.35;
+  margin-bottom: 2px; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.yt-channel { font-size: 10px; color: var(--text-dim); }
+.yt-subtopics {
+  display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; min-height: 14px;
+}
+.yt-subtopic-chip {
+  font-size: 9px; font-family: 'IBM Plex Mono', monospace;
+  color: var(--text-muted); background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border2); border-radius: 4px;
+  padding: 1px 5px; white-space: nowrap;
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+}
+.yt-subtopic-skel {
+  display: inline-block; height: 13px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--card2) 25%, var(--border2) 50%, var(--card2) 75%);
+  background-size: 200% 100%; animation: shimmer 1.2s infinite;
+}
+.yt-subtopic-skel:nth-child(1) { width: 52px; }
+.yt-subtopic-skel:nth-child(2) { width: 68px; animation-delay: 0.15s; }
+.yt-subtopic-skel:nth-child(3) { width: 40px; animation-delay: 0.3s; }
+.btn-yt-like {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 4px 8px; background: transparent;
+  border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 5px; font-size: 10px; font-family: 'Sarabun', sans-serif;
+  font-weight: 600; cursor: pointer; transition: all 0.18s;
+  white-space: nowrap; flex-shrink: 0; align-self: center;
+}
+.btn-yt-like:hover { border-color: var(--accent-k); color: var(--accent-k); background: rgba(245,200,66,0.06); }
+.btn-yt-like.liked { background: rgba(245,200,66,0.12); border-color: var(--accent-k); color: var(--accent-k); }
+
+/* Transcribe */
+.transcribe-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; margin-top: 10px; }
+.transcribe-title { font-size: 11px; font-weight: 700; color: var(--white); margin-bottom: 5px; }
+.transcribe-body { font-size: 12px; color: var(--text-muted); line-height: 1.7; min-height: 40px; white-space: pre-wrap; }
+
+/* Empty */
+.empty-state { text-align: center; padding: 34px 16px; color: var(--text-dim); }
+.empty-state .es-icon { font-size: 30px; margin-bottom: 9px; display: block; }
+.empty-state p { font-size: 12px; line-height: 1.7; }
+
+/* Skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, var(--card2) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px; height: 13px; margin-bottom: 8px;
+}
+.skeleton.wide { width: 100%; }
+.skeleton.med  { width: 70%; }
+.skeleton.short { width: 40%; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 100px; padding: 8px 18px;
+  font-size: 12px; color: var(--accent-r); font-weight: 600;
+  z-index: 9999; transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  white-space: nowrap; pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 860px) {
+  :root { --left-w: 200px; }
+}
+@media (max-width: 580px) {
+  .left-col { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Top Nav ── -->
+<nav class="topnav">
+  <button class="back-btn" onclick="history.back()">← กลับ</button>
+  <div class="topnav-sep"></div>
+  <span class="topnav-logo">VARK</span>
+  <div class="topnav-sep"></div>
+  <span class="topnav-title" id="nav-filename">ยังไม่ได้เลือกไฟล์</span>
+  <div id="nav-vark-wrap"></div>
+</nav>
+
+<div class="workspace">
+
+  <!-- ── LEFT: PDF tabs + viewer ── -->
+  <div class="left-col" id="left-col">
+
+    <!-- Drag-to-resize handle -->
+    <div class="col-resizer" id="col-resizer">
+      <div class="col-resizer-line"></div>
+    </div>
+
+    <div class="pdf-tabs-header">
+      <span class="pdf-tabs-title">PDF Files</span>
+      <label class="btn-add-pdf">
+        <input type="file" accept=".pdf" multiple onchange="handleSidebarFiles(this.files)">
+        + Add
+      </label>
+    </div>
+
+    <!-- Tab list (no thumbnails) -->
+    <div class="pdf-tab-list" id="pdf-tab-list">
+      <div class="pdf-tabs-empty" id="tabs-empty">📂 ยังไม่มีไฟล์<br>กด <strong>+ Add</strong></div>
+    </div>
+
+    <!-- PDF viewer below tabs -->
+    <div class="pdf-viewer-area">
+      <div class="viewer-toolbar">
+        <span class="viewer-filename" id="viewer-filename">—</span>
+        <span class="page-info" id="page-info-strip" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);"></span>
+      </div>
+      <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
+        <div class="viewer-empty" id="viewer-empty">
+          <div class="ve-icon">📄</div>
+          <p>เลือก PDF จาก<br>tab ด้านบน</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CENTER: Study panel ── -->
+  <div class="study-panel">
+
+    <div class="study-tabs">
+      <button class="study-tab active" onclick="switchTab('guide', this)">📖 Study Guide</button>
+      <button class="study-tab" onclick="switchTab('summary', this)">✦ Summary</button>
+      <button class="study-tab" onclick="switchTab('videos', this)">▶ Videos</button>
+      <div class="vark-legend" id="vark-legend" style="display:none;">
+        <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-v)"></div><span>V</span></div>
+        <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-a)"></div><span>A</span></div>
+        <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-r)"></div><span>R</span></div>
+        <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-k)"></div><span>K</span></div>
+      </div>
+    </div>
+
+    <div class="generate-bar">
+      <textarea id="topic-input" class="topic-input" placeholder="คำสั่งเพิ่มเติม เช่น สรุปแบบ Visual / สร้าง Flashcard…"></textarea>
+      <button class="btn-mic" id="btn-mic" title="Speech to Text" onclick="toggleMic()">🎙️</button>
+      <button class="btn-generate" id="btn-generate" onclick="generate()" disabled>
+        <div class="spinner" id="spinner"></div>
+        <span>✦ Generate</span>
+      </button>
+    </div>
+
+    <div class="study-body">
+
+      <!-- Guide Tab -->
+      <div class="tab-panel active" id="panel-guide">
+        <div class="empty-state" id="guide-empty">
+          <span class="es-icon">🤖</span>
+          <p>เลือก PDF แล้วกด <strong>Generate</strong><br>เพื่อสร้างสื่อการเรียนรู้</p>
+        </div>
+        <div id="guide-skeleton" style="display:none;">
+          <div class="skeleton wide"></div><div class="skeleton med"></div>
+          <div class="skeleton wide"></div><div class="skeleton short"></div>
+          <div class="skeleton wide"></div><div class="skeleton med"></div>
+        </div>
+        <div id="guide-vark-sections" style="display:none;"></div>
+        <div class="like-bar" id="like-bar" style="display:none;">
+          <span class="like-bar-label">📊 เนื้อหานี้ตรงกับสไตล์คุณไหม?</span>
+          <button class="btn-like" id="btn-like" onclick="toggleLike()">👍 ถูกใจ</button>
+        </div>
+      </div>
+
+      <!-- Summary Tab -->
+      <div class="tab-panel" id="panel-summary">
+        <div class="empty-state" id="summary-empty">
+          <span class="es-icon">📋</span>
+          <p>Generate ก่อนเพื่อดู Summary</p>
+        </div>
+        <div class="summary-wrap" id="summary-wrap" style="display:none;"></div>
+      </div>
+
+      <!-- Videos Tab -->
+      <div class="tab-panel" id="panel-videos">
+        <div class="empty-state" id="videos-empty">
+          <span class="es-icon">▶️</span>
+          <p>Generate ก่อนเพื่อดูวิดีโอแนะนำ</p>
+        </div>
+        <div id="yt-grid" class="yt-grid" style="display:none;"></div>
+        <div class="transcribe-panel" id="transcribe-panel" style="display:none;">
+          <div class="transcribe-title">🎙️ Speech-to-Text</div>
+          <div class="transcribe-body" id="transcribe-body">กด 🎙️ แล้วพูดเพื่อ transcribe</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const API_BASE = 'http://localhost:8000';
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─── STATE ───────────────────────────────────────────────────
+let pdfFiles     = [];
+let activePdfIdx = -1;
+let currentPage  = 1;
+let totalPages   = 1;
+let pdfDoc       = null;
+const varkData   = JSON.parse(sessionStorage.getItem('__vark_current__') || 'null');
+let feedbackSessions = [];
+let currentSession   = null;
+let likedVideoIds    = new Set();
+let typhoonKey       = '';          // โหลดจาก /config
+const videoVarkCache = new Map();   // cache: videoId → ['V','K',…]
+
+const VARK_CFG = {
+  V: { label:'Visual',      color:'#6c8fff', emoji:'👁️',  icon:'📊' },
+  A: { label:'Aural',       color:'#ff7c5c', emoji:'👂',  icon:'🎧' },
+  R: { label:'Read/Write',  color:'#5cd6b0', emoji:'📝',  icon:'📚' },
+  K: { label:'Kinesthetic', color:'#f5c842', emoji:'🤸',  icon:'⚡' },
+};
+
+// ─── FETCH CONFIG (typhoon key) ───────────────────────────────
+(async function loadConfig() {
+  try {
+    const res  = await fetch(`${API_BASE}/config`);
+    const cfg  = await res.json();
+    typhoonKey = cfg.typhoon_api_key || '';
+  } catch(e) {
+    console.warn('Config fetch failed:', e.message);
+  }
+})();
+
+// ─── INIT ─────────────────────────────────────────────────────
+(function init() {
+  if (!varkData) return;
+  const scores   = varkData.vark_scores || {};
+  const dominant = varkData.dominant_style || 'R';
+
+  // Build chips for all styles that have a score > 0, sorted by score desc
+  const order = ['V','A','R','K']
+    .map(k => ({ k, score: Number(scores[k] || 0) }))
+    .sort((a, b) => b.score - a.score)
+    .filter(x => x.score > 0);
+
+  const chipsHtml = order.map(({ k, score }) => {
+    const cfg = VARK_CFG[k];
+    const c   = cfg.color;
+    const pct = Math.round((score / (order.reduce((s,x)=>s+x.score,0)||100)) * 100);
+    const isDom = k === dominant;
+    return `<div class="topnav-chip" style="background:${c}${isDom ? '30' : '15'};border-color:${c}${isDom ? '80' : '40'};color:${c};${isDom ? 'font-weight:800;' : 'opacity:0.75;'}">
+      ${cfg.emoji} ${cfg.label.split('/')[0]} <span style="opacity:0.7">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('nav-vark-wrap').innerHTML =
+    `<div style="display:flex;gap:5px;align-items:center;flex-wrap:nowrap;">${chipsHtml}</div>`;
+  document.getElementById('vark-legend').style.display = 'flex';
+})();
+
+// ─── PDF TABS ─────────────────────────────────────────────────
+async function handleSidebarFiles(fileList) {
+  for (const file of fileList) {
+    if (file.type !== 'application/pdf') continue;
+    if (pdfFiles.find(f => f.name === file.name)) continue;
+    const entry = { name: file.name, file, pdfDoc: null, pageCount: '?' };
+    pdfFiles.push(entry);
+    try {
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      entry.pdfDoc    = doc;
+      entry.pageCount = doc.numPages;
+    } catch(e) { console.error(e); }
+    renderTabList();
+    if (pdfFiles.length === 1) selectPdf(0);
+  }
+}
+
+function renderTabList() {
+  const list  = document.getElementById('pdf-tab-list');
+  const empty = document.getElementById('tabs-empty');
+  list.querySelectorAll('.pdf-tab-item').forEach(e => e.remove());
+  if (pdfFiles.length === 0) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  pdfFiles.forEach((f, idx) => {
+    const div = document.createElement('div');
+    div.className = 'pdf-tab-item' + (idx === activePdfIdx ? ' active' : '');
+    const short = f.name.length > 22 ? f.name.slice(0,20)+'…' : f.name;
+    div.innerHTML = `
+      <span class="pdf-tab-icon">📄</span>
+      <div class="pdf-tab-meta">
+        <div class="pdf-tab-name" title="${f.name}">${short}</div>
+        <div class="pdf-tab-pages">${f.pageCount} หน้า</div>
+      </div>
+      <button class="pdf-tab-remove" onclick="removePdf(${idx},event)" title="ลบ">✕</button>
+    `;
+    div.addEventListener('click', (e) => {
+      if (e.target.classList.contains('pdf-tab-remove')) return;
+      selectPdf(idx);
+    });
+    list.appendChild(div);
+  });
+}
+
+function selectPdf(idx) {
+  activePdfIdx = idx;
+  renderTabList();
+  const entry = pdfFiles[idx];
+  document.getElementById('nav-filename').textContent    = entry.name;
+  document.getElementById('viewer-filename').textContent = entry.name;
+  document.getElementById('btn-generate').disabled       = false;
+  if (entry.pdfDoc) {
+    pdfDoc = entry.pdfDoc;
+    totalPages  = pdfDoc.numPages;
+    currentPage = 1;
+    renderAllPages(pdfDoc);
+  }
+}
+
+function removePdf(idx, e) {
+  e.stopPropagation();
+  pdfFiles.splice(idx, 1);
+  if (activePdfIdx === idx) {
+    activePdfIdx = pdfFiles.length > 0 ? 0 : -1;
+    if (activePdfIdx === 0) {
+      selectPdf(0);
+    } else {
+      document.getElementById('viewer-empty').style.display = '';
+      document.getElementById('viewer-filename').textContent = '—';
+      document.getElementById('nav-filename').textContent    = 'ยังไม่ได้เลือกไฟล์';
+      document.getElementById('btn-generate').disabled       = true;
+      document.getElementById('page-info-strip').textContent = '';
+      document.getElementById('pdf-canvas-wrap')
+        .querySelectorAll('.pdf-page-canvas').forEach(c => c.remove());
+    }
+  } else if (activePdfIdx > idx) { activePdfIdx--; }
+  renderTabList();
+}
+
+// ─── PDF RENDER (long strip — all pages) ─────────────────────
+async function renderAllPages(doc) {
+  const wrap = document.getElementById('pdf-canvas-wrap');
+  // clear old pages but keep viewer-empty
+  wrap.querySelectorAll('.pdf-page-canvas').forEach(c => c.remove());
+  document.getElementById('viewer-empty').style.display = 'none';
+
+  const containerW = wrap.clientWidth - 16;
+  const dpr = window.devicePixelRatio || 1;
+  const total = doc.numPages;
+
+  document.getElementById('page-info-strip').textContent = `${total} หน้า`;
+
+  for (let p = 1; p <= total; p++) {
+    const page   = await doc.getPage(p);
+    const origVp = page.getViewport({ scale: 1 });
+    const scale  = Math.min(containerW / origVp.width, 2.5);
+    const vp     = page.getViewport({ scale: scale * dpr });
+
+    const canvas = document.createElement('canvas');
+    canvas.className    = 'pdf-page-canvas';
+    canvas.width        = vp.width;
+    canvas.height       = vp.height;
+    canvas.style.width  = (vp.width  / dpr) + 'px';
+    canvas.style.height = (vp.height / dpr) + 'px';
+    wrap.appendChild(canvas);
+
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  }
+}
+
+// keep stub so resize-handle code doesn't break
+async function renderPage(pageNum) {
+  if (!pdfDoc) return;
+  await renderAllPages(pdfDoc);
+}
+
+function changePage(delta) {} // no-op — strip mode has no pagination
+
+// ─── TABS ─────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.study-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(`panel-${name}`).classList.add('active');
+}
+
+// ─── GENERATE ─────────────────────────────────────────────────
+async function generate() {
+  if (activePdfIdx < 0 || !pdfFiles[activePdfIdx]?.file) {
+    showToast('⚠️ กรุณาเลือก PDF ก่อน'); return;
+  }
+  const btn     = document.getElementById('btn-generate');
+  const spinner = document.getElementById('spinner');
+  const topic   = document.getElementById('topic-input').value.trim();
+  btn.disabled = true;
+  spinner.style.display = 'block';
+  document.getElementById('guide-empty').style.display         = 'none';
+  document.getElementById('guide-skeleton').style.display      = 'block';
+  document.getElementById('guide-vark-sections').style.display = 'none';
+  document.getElementById('like-bar').style.display            = 'none';
+
+  const varkScores = varkData
+    ? { ...varkData.vark_scores, dominant: varkData.dominant_style }
+    : { V:25, A:25, R:25, K:25, dominant:'R' };
+
+  // Build multi-modal instruction based on VARK %
+  const styleLabels = { V:'Visual (ตาราง/diagram/chart)', A:'Aural (เล่าเรื่อง/dialog/mnemonic)', R:'Read/Write (outline/definitions/notes)', K:'Kinesthetic (ขั้นตอน/แบบฝึก/โจทย์จริง)' };
+  const order = ['V','A','R','K']
+    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
+    .sort((a, b) => b.score - a.score)
+    .filter(x => x.score > 0);
+  const totalScore = order.reduce((s, x) => s + x.score, 0) || 100;
+  const styleInstr = order.map(({ k, score }) => {
+    const pct = Math.round((score / totalScore) * 100);
+    return `${pct}% ${styleLabels[k]}`;
+  }).join(', ');
+  const multiModalNote = `\n\n[คำแนะนำสไตล์การเรียน VARK: สร้างสื่อแบบ multi-modal ตามสัดส่วน: ${styleInstr}. ห้ามเขียน header หรือ label บอกชื่อสไตล์ VARK เช่น "Visual:", "Kinesthetic:" หรือ emoji VARK ลงในเนื้อหา ให้เขียนเนื้อหาต่อเนื่องเป็นธรรมชาติโดยไม่บอกว่าส่วนไหนเป็น VARK อะไร]`;
+  const fullTopic = topic + multiModalNote;
+
+  try {
+    const fd = new FormData();
+    fd.append('pdf', pdfFiles[activePdfIdx].file);
+    fd.append('vark_style', JSON.stringify(varkScores));
+    fd.append('topic', fullTopic);
+
+    const resp = await fetch(`${API_BASE}/generate`, { method:'POST', body:fd });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'API error');
+    }
+    const data = await resp.json();
+    console.log("ตรวจสอบข้อมูลจาก Server:", data);
+    currentSession = {
+      session_id:        data.session_id,
+      vark_style:        data.vark_style,
+      context_snippet:   data.context_snippet,
+      learning_material: data.learning_material,
+      youtube_queries:   JSON.stringify(data.youtube_queries),
+      liked: false,
+    };
+
+    renderVARKGuide(data.learning_material, varkScores, data.images || []);
+    renderSummary(data.learning_material, varkScores);
+    renderVideos(data.videos || [], varkScores);
+    document.querySelector('.study-tab').click();
+
+  } catch(err) {
+    console.error(err);
+    showToast(`❌ ${err.message || 'เกิดข้อผิดพลาด'}`);
+    document.getElementById('guide-empty').style.display = '';
+  } finally {
+    document.getElementById('guide-skeleton').style.display = 'none';
+    btn.disabled = false;
+    spinner.style.display = 'none';
+  }
+}
+
+// ─── VARK-PROPORTIONAL GUIDE ──────────────────────────────────
+function renderVARKGuide(md, varkScores, images = []) {
+  const el = document.getElementById('guide-vark-sections');
+  el.innerHTML = '';
+
+  // Sort styles by score, highest first
+  const order = ['V','A','R','K']
+    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
+    .sort((a, b) => b.score - a.score)
+    .filter(x => x.score > 0);
+
+  const totalScore = order.reduce((s, x) => s + x.score, 0) || 100;
+  const lines      = md.split('\n');
+  const totalLines = lines.length;
+  let li = 0;
+
+  order.forEach(({ k, score }, i) => {
+    const count = i < order.length - 1
+      ? Math.round((score / totalScore) * totalLines)
+      : totalLines - li;
+    const chunk  = lines.slice(li, li + Math.max(count, 1)).join('\n');
+    li += Math.max(count, 1);
+
+    const sec = document.createElement('div');
+    sec.className = `vark-section s-${k}`;
+
+    // Visual section: inject image gallery if images exist
+    if (k === 'V' && images.length > 0) {
+      const galleryWrap = document.createElement('div');
+      galleryWrap.innerHTML = `<div class="visual-gallery-header">🖼️ Visual References</div>`;
+      const grid = document.createElement('div');
+      grid.className = 'visual-gallery';
+      images.forEach(img => {
+        const card = document.createElement('div');
+        card.className = 'visual-img-card';
+        card.title = img.alt_description || img.title || img.query;
+        card.innerHTML = `
+          <img src="${img.url}"
+               alt="${img.alt_description || img.title}"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+               loading="lazy">
+          <div class="visual-img-alt" style="display:none;">${img.alt_description || img.title || '—'}</div>
+          <div class="visual-img-source">${img.source || ''}</div>`;
+        card.addEventListener('click', () => window.open(img.url, '_blank'));
+        grid.appendChild(card);
+      });
+      galleryWrap.appendChild(grid);
+      sec.appendChild(galleryWrap);
+    }
+
+    const content = document.createElement('div');
+    content.className = 'guide-content';
+    content.innerHTML = parseMD(chunk);
+    sec.appendChild(content);
+
+    el.appendChild(sec);
+  });
+
+  el.style.display = 'block';
+  document.getElementById('like-bar').style.display = 'flex';
+}
+
+// ─── MARKDOWN PARSER ──────────────────────────────────────────────
+// inline formatting only
+function inlineMD(s) {
+  return s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/`([^`]+)`/g,     '<code>$1</code>');
+}
+
+function parseMD(md) {
+  var lines = md.split('\n');
+  var out   = [];
+  var i     = 0;
+
+  while (i < lines.length) {
+    var raw = lines[i];
+
+    // Fenced code block
+    if (/^```/.test(raw)) {
+      var lang = raw.slice(3).trim();
+      var code = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
+      out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+      i++; continue;
+    }
+
+    // Table: collect consecutive | lines, properly handle header/separator/body
+    if (/^\|/.test(raw)) {
+      var tls = [];
+      while (i < lines.length && /^\|/.test(lines[i])) { tls.push(lines[i]); i++; }
+      var hDone = false;
+      var html = '<table>';
+      for (var ti = 0; ti < tls.length; ti++) {
+        var tl = tls[ti];
+        // separator row like |---|:---|---| -- skip it, mark header done
+        if (/^\|[\s\-:|]+\|$/.test(tl) || /^\|[-:\s|]+$/.test(tl)) { hDone = true; continue; }
+        var parts = tl.split('|');
+        var cells = parts.slice(1, parts.length - 1);
+        var tag   = (!hDone) ? 'th' : 'td';
+        html += '<tr>';
+        for (var ci = 0; ci < cells.length; ci++) {
+          html += '<' + tag + '>' + inlineMD(cells[ci].trim()) + '</' + tag + '>';
+        }
+        html += '</tr>';
+        if (!hDone) hDone = true; // first non-sep row = header
+      }
+      html += '</table>';
+      out.push(html);
+      continue;
+    }
+
+    // Headings
+    if (/^### /.test(raw)) { out.push('<h3>' + inlineMD(raw.slice(4)) + '</h3>'); i++; continue; }
+    if (/^## /.test(raw))  { out.push('<h2>' + inlineMD(raw.slice(3)) + '</h2>'); i++; continue; }
+    if (/^# /.test(raw))   { out.push('<h1>' + inlineMD(raw.slice(2)) + '</h1>'); i++; continue; }
+
+    // HR
+    if (/^---+$/.test(raw.trim())) { out.push('<hr>'); i++; continue; }
+
+    // Blockquote
+    if (/^> /.test(raw)) { out.push('<blockquote>' + inlineMD(raw.slice(2)) + '</blockquote>'); i++; continue; }
+
+    // Unordered list
+    if (/^[-*] /.test(raw)) {
+      var items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push('<li>' + inlineMD(lines[i].slice(2)) + '</li>');
+        i++;
+      }
+      out.push('<ul>' + items.join('') + '</ul>');
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s/.test(raw)) {
+      var olitems = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        olitems.push('<li>' + inlineMD(lines[i].replace(/^\d+\.\s+/, '')) + '</li>');
+        i++;
+      }
+      out.push('<ol>' + olitems.join('') + '</ol>');
+      continue;
+    }
+
+    // Blank line
+    if (raw.trim() === '') { i++; continue; }
+
+    // Paragraph — collect until blank line or block-level token
+    var para = [];
+    while (i < lines.length && lines[i].trim() !== '' &&
+           !/^[#>|`]/.test(lines[i]) &&
+           !/^[-*] /.test(lines[i]) &&
+           !/^\d+\.\s/.test(lines[i]) &&
+           !/^---/.test(lines[i].trim())) {
+      para.push(inlineMD(lines[i]));
+      i++;
+    }
+    if (para.length) out.push('<p>' + para.join('<br>') + '</p>');
+  }
+
+  return out.join('\n');
+}
+
+// ─── SUMMARY ──────────────────────────────────────────────────
+function renderSummary(md, varkScores) {
+  const wrap  = document.getElementById('summary-wrap');
+  const emEl  = document.getElementById('summary-empty');
+  wrap.innerHTML = '';
+
+  const plain  = md.replace(/[#*`>|-]/g, '').replace(/\n+/g, ' ').trim();
+  const words  = plain.split(/\s+/);
+  const order  = ['V','A','R','K']
+    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
+    .sort((a, b) => b.score - a.score)
+    .filter(x => x.score > 0);
+  const totalScore  = order.reduce((s, x) => s + x.score, 0) || 100;
+  const LIMIT = Math.min(words.length, 120);
+  let wi = 0;
+
+  order.forEach(({ k, score }, i) => {
+    const cfg   = VARK_CFG[k];
+    const pct   = Math.round((score / totalScore) * 100);
+    const wc    = i < order.length - 1
+      ? Math.round((score / totalScore) * LIMIT)
+      : LIMIT - wi;
+    const snip  = words.slice(wi, wi + Math.max(wc, 5)).join(' ');
+    wi += Math.max(wc, 5);
+
+    const kv = document.createElement('div');
+    kv.className = 'summary-kv';
+    kv.innerHTML = `
+      <div class="summary-kv-icon">${cfg.icon}</div>
+      <div class="summary-kv-body">
+        <div class="summary-kv-label" style="color:${cfg.color};">${cfg.label} (${pct}%)</div>
+        <div class="summary-kv-text">${snip}…</div>
+      </div>`;
+    wrap.appendChild(kv);
+  });
+
+  emEl.style.display  = 'none';
+  wrap.style.display  = 'flex';
+}
+
+// ─── VIDEOS ───────────────────────────────────────────────────
+function renderVideos(videos, varkScores) {
+  const grid  = document.getElementById('yt-grid');
+  const empty = document.getElementById('videos-empty');
+  const tp    = document.getElementById('transcribe-panel');
+
+  if (!videos || videos.length === 0) {
+    grid.style.display  = 'none';
+    empty.style.display = '';
+    tp.style.display    = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  tp.style.display    = 'block';
+  grid.innerHTML      = '';
+  grid.style.display  = 'flex';
+
+  // Build sorted VARK order + weight description for Typhoon prompt
+  const order = ['V','A','R','K']
+    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
+    .sort((a, b) => b.score - a.score)
+    .filter(x => x.score > 0);
+  const totalScore    = order.reduce((s, x) => s + x.score, 0) || 100;
+  const varkWeightDesc = order.map(({ k, score }) => {
+    const pct  = Math.round((score / totalScore) * 100);
+    const name = { V:'Visual', A:'Aural', R:'Read/Write', K:'Kinesthetic' }[k];
+    return `${k}=${pct}% (${name})`;
+  }).join(', ');
+
+  videos.forEach((v, idx) => {
+    const vid  = v.video_id;
+    const card = document.createElement('div');
+    card.className = 'yt-card';
+    if (vid) card.dataset.vid = vid;
+
+    if (v.is_search_link) {
+      // ── Search-link card (no API key) ──
+      card.innerHTML = `
+        <div style="width:120px;min-width:120px;display:flex;align-items:center;justify-content:center;background:var(--surface);flex-shrink:0;">
+          <span style="font-size:22px">🔍</span>
+        </div>
+        <div class="yt-footer" style="flex:1;">
+          <div class="yt-info">
+            <div class="yt-title">${v.title}</div>
+            <div class="yt-channel" style="color:var(--accent-v);margin-top:3px;">คลิกเพื่อค้นหาใน YouTube →</div>
+          </div>
+        </div>`;
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', () => window.open(v.url, '_blank'));
+      grid.appendChild(card);
+      return;
+    }
+
+    // Render card with shimmer skeleton tags immediately
+    card.innerHTML = `
+      <img class="yt-thumb" src="${v.thumbnail}" alt="${v.title}" loading="lazy">
+      <div class="yt-embed-wrap">
+        <iframe src="${v.embed_url}?autoplay=0" allowfullscreen allow="autoplay"></iframe>
+      </div>
+      <div class="yt-footer">
+        <div class="yt-info">
+          <div class="yt-vark-tags" id="vtags-${vid}">
+            <span class="yt-tag-skel"></span>
+            <span class="yt-tag-skel"></span>
+          </div>
+          <div class="yt-title">${v.title}</div>
+          <div class="yt-channel">${v.channel}</div>
+          <div class="yt-subtopics" id="subs-${vid}">
+            <span class="yt-subtopic-skel"></span>
+            <span class="yt-subtopic-skel"></span>
+            <span class="yt-subtopic-skel"></span>
+          </div>
+        </div>
+        <button class="btn-yt-like" data-vid="${vid}" onclick="toggleVideoLike(this,'${vid}')">👍 Like</button>
+      </div>
+    `;
+
+    card.querySelector('.yt-thumb').addEventListener('click', () => {
+      document.querySelectorAll('.yt-card').forEach(c => c.classList.remove('playing'));
+      card.classList.add('playing');
+    });
+
+    grid.appendChild(card);
+
+    // Stagger AI calls — 350 ms apart to avoid rate-limit
+    setTimeout(() => {
+      analyzeVideoVark(v, varkWeightDesc, order).then(result => {
+        const tagsEl = document.getElementById(`vtags-${vid}`);
+        const subsEl = document.getElementById(`subs-${vid}`);
+
+        if (tagsEl) {
+          tagsEl.innerHTML = result.vark.map(k => {
+            const cfg = VARK_CFG[k];
+            return `<span class="yt-vark-tag"
+              style="color:${cfg.color};border-color:${cfg.color}55;background:${cfg.color}15;">
+              ${cfg.emoji} ${cfg.label.split('/')[0]}
+            </span>`;
+          }).join('');
+        }
+        if (subsEl) {
+          subsEl.innerHTML = (result.subtopics || []).length
+            ? result.subtopics.map(s => `<span class="yt-subtopic-chip" title="${s}">${s}</span>`).join('')
+            : '';
+        }
+      });
+    }, idx * 350);
+  });
+}
+
+// ─── TYPHOON: วิเคราะห์ VARK tags + หัวข้อย่อยต่อ video ───────
+async function analyzeVideoVark(video, varkWeightDesc, order) {
+  const vid = video.video_id;
+  if (videoVarkCache.has(vid)) return videoVarkCache.get(vid);
+
+  // Fallback แบบ proportional (ใช้เมื่อ API ไม่พร้อม)
+  function fallback() {
+    const primaryScore = order[0]?.score || 0;
+    const tags = order.length ? [order[0].k] : ['R'];
+    for (const { k, score } of order.slice(1)) {
+      if (score >= primaryScore * 0.5 && tags.length < 3) tags.push(k);
+    }
+    return { vark: tags, subtopics: [] };
+  }
+
+  if (!typhoonKey) {
+    const fb = fallback();
+    videoVarkCache.set(vid, fb);
+    return fb;
+  }
+
+  // ── Step 1: ดึงข้อมูลเนื้อหาจริงของคลิปจาก backend ─────────
+  let description = '';
+  let vidTags     = [];
+  let topicCats   = [];
+  try {
+    const infoRes = await fetch(`${API_BASE}/video-info/${vid}`);
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      description = info.description       || '';
+      vidTags     = info.tags              || [];
+      topicCats   = info.topic_categories  || [];
+    }
+  } catch(e) {
+    console.warn(`video-info fetch error [${vid}]:`, e.message);
+  }
+
+  // ── Step 2: prompt ดึง VARK + subtopics พร้อมกัน ────────────
+  const contentBlock = [
+    description ? `- Description: "${description.slice(0, 600)}"` : '',
+    vidTags.length  ? `- Tags: ${vidTags.slice(0, 10).join(', ')}` : '',
+    topicCats.length
+      ? `- Topic categories: ${topicCats.map(u => u.split('/').pop()).join(', ')}`
+      : '',
+  ].filter(Boolean).join('\n');
+
+  const prompt =
+`You are a VARK learning-style classifier for YouTube educational videos.
+
+VARK definitions:
+- V (Visual): diagrams, charts, animations, slides, infographics, screen recordings
+- A (Aural): lecture/talk/podcast/discussion, heavy spoken explanation
+- R (Read/Write): text on screen, code walkthroughs, written notes, documentation
+- K (Kinesthetic): hands-on demos, live coding, experiments, step-by-step practice
+
+Learner's VARK profile:
+${varkWeightDesc}
+
+Video:
+- Title: "${video.title}"
+- Channel: "${video.channel}"
+${contentBlock}
+
+Reply with ONLY valid JSON, no markdown, no explanation:
+{
+  "vark": ["V","K"],
+  "subtopics": ["หัวข้อย่อย 1","หัวข้อย่อย 2","หัวข้อย่อย 3"]
+}
+
+Rules:
+- "vark": 1–4 letters from V,A,R,K that genuinely appear in the video
+- "subtopics": 2–4 short Thai or English topic keywords extracted from the video content (e.g. "if-else", "ลูป for", "recursion"). Use Thai when the video is in Thai. Max 12 characters each.`;
+
+  try {
+    const res = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${typhoonKey}`,
+      },
+      body: JSON.stringify({
+        model:       'typhoon-v2.5-30b-a3b-instruct',
+        max_tokens:  120,
+        temperature: 0.0,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw  = (data.choices?.[0]?.message?.content || '').trim();
+
+    // Parse JSON robustly
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const vark = [...new Set(
+        (parsed.vark || []).map(s => String(s).trim().toUpperCase())
+          .filter(s => ['V','A','R','K'].includes(s))
+      )].slice(0, 4);
+      const subtopics = (parsed.subtopics || [])
+        .filter(s => typeof s === 'string' && s.trim())
+        .map(s => s.trim().slice(0, 16))
+        .slice(0, 4);
+
+      const result = { vark: vark.length ? vark : fallback().vark, subtopics };
+      videoVarkCache.set(vid, result);
+      return result;
+    }
+    throw new Error('No JSON found');
+
+  } catch(e) {
+    console.warn(`VARK AI tag error [${vid}]:`, e.message);
+    const fb = fallback();
+    videoVarkCache.set(vid, fb);
+    return fb;
+  }
+}
+
+// ─── RESIZE HANDLE ────────────────────────────────────────────
+(function initColResize() {
+  const handle  = document.getElementById('col-resizer');
+  const leftCol = document.getElementById('left-col');
+  if (!handle || !leftCol) return;
+
+  const MIN_W = 140, MAX_W = 560;
+  let dragging = false, startX = 0, startW = 0;
+
+  function begin(clientX) {
+    dragging = true; startX = clientX; startW = leftCol.offsetWidth;
+    handle.classList.add('is-dragging');
+    document.body.classList.add('col-resizing');
+  }
+  function move(clientX) {
+    if (!dragging) return;
+    const w = Math.min(MAX_W, Math.max(MIN_W, startW + (clientX - startX)));
+    leftCol.style.width = w + 'px';
+    if (pdfDoc) renderPage(currentPage);
+  }
+  function end() {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('is-dragging');
+    document.body.classList.remove('col-resizing');
+    try { localStorage.setItem('vark_left_w', leftCol.offsetWidth); } catch(_) {}
+  }
+
+  // Restore saved width
+  try {
+    const s = parseInt(localStorage.getItem('vark_left_w'), 10);
+    if (s >= MIN_W && s <= MAX_W) leftCol.style.width = s + 'px';
+  } catch(_) {}
+
+  handle.addEventListener('mousedown',  e => { e.preventDefault(); begin(e.clientX); });
+  document.addEventListener('mousemove', e => move(e.clientX));
+  document.addEventListener('mouseup',   () => end());
+  handle.addEventListener('touchstart',  e => begin(e.touches[0].clientX), { passive: true });
+  document.addEventListener('touchmove', e => move(e.touches[0].clientX),  { passive: true });
+  document.addEventListener('touchend',  () => end());
+})();
+
+// ─── LIKE (guide) ─────────────────────────────────────────────
+function toggleLike() {
+  if (!currentSession) return;
+  currentSession.liked = !currentSession.liked;
+  const btn = document.getElementById('btn-like');
+  btn.classList.toggle('liked', currentSession.liked);
+  btn.textContent = currentSession.liked ? '👍 ถูกใจแล้ว!' : '👍 ถูกใจ';
+  if (currentSession.liked) {
+    feedbackSessions = feedbackSessions.filter(s => s.session_id !== currentSession.session_id);
+    feedbackSessions.unshift({ ...currentSession });
+    if (feedbackSessions.length > 5) feedbackSessions = feedbackSessions.slice(0,5);
+    sendFeedback();
+    showToast('💾 บันทึกแล้ว ขอบคุณ!');
+  }
+}
+
+// ─── LIKE (per video) ─────────────────────────────────────────
+function toggleVideoLike(btn, videoId) {
+  if (likedVideoIds.has(videoId)) {
+    likedVideoIds.delete(videoId);
+    btn.classList.remove('liked');
+    btn.innerHTML = '👍 Like';
+    showToast('ยกเลิก Like วิดีโอ');
+  } else {
+    likedVideoIds.add(videoId);
+    btn.classList.add('liked');
+    btn.innerHTML = '👍 Liked!';
+    showToast('💛 Like วิดีโอแล้ว!');
+    if (currentSession) {
+      fetch(`${API_BASE}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{
+          ...currentSession,
+          session_id: currentSession.session_id + '_vid_' + videoId,
+          liked: true,
+        }]}),
+      }).catch(e => console.warn(e));
+    }
+  }
+}
+
+async function sendFeedback() {
+  try {
+    await fetch(`${API_BASE}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: feedbackSessions }),
+    });
+  } catch(e) { console.warn(e); }
+}
+
+// ─── SPEECH-TO-TEXT ───────────────────────────────────────────
+let recognition = null;
+let isRecording  = false;
+
+function toggleMic() { isRecording ? stopMic() : startMic(); }
+
+function startMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { showToast('⚠️ Browser ไม่รองรับ Speech Recognition'); return; }
+  recognition = new SR();
+  recognition.lang = 'th-TH'; recognition.continuous = true; recognition.interimResults = true;
+  recognition.onresult = (e) => {
+    let t = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+    document.getElementById('topic-input').value = t;
+    document.getElementById('transcribe-body').textContent = t;
+    document.getElementById('transcribe-panel').style.display = 'block';
+  };
+  recognition.onerror = (e) => { showToast(`🎙️ Error: ${e.error}`); stopMic(); };
+  recognition.onend   = () => stopMic();
+  recognition.start();
+  isRecording = true;
+  document.getElementById('btn-mic').classList.add('recording');
+}
+
+function stopMic() {
+  if (recognition) { recognition.stop(); recognition = null; }
+  isRecording = false;
+  document.getElementById('btn-mic').classList.remove('recording');
+}
+
+// ─── TOAST ────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>

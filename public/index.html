@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>แบบสอบถาม VARK</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <div class="badge">🧠 Learning Style Assessment</div>
+    <h1>ฉันเรียนได้ดีที่สุด<br><span>อย่างไร?</span></h1>
+    <p>แบบสอบถาม VARK ฉบับภาษาไทย</p>
+    <div class="vark-pills">
+      <span class="vark-pill pill-v">Visual</span>
+      <span class="vark-pill pill-a">Aural</span>
+      <span class="vark-pill pill-r">Read/Write</span>
+      <span class="vark-pill pill-k">Kinesthetic</span>
+    </div>
+    <!-- TTS Toggle Button -->
+    <div class="tts-bar">
+      <button class="tts-toggle-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="เปิด/ปิด อ่านโจทย์ออกเสียง">
+        <span class="tts-icon" id="tts-icon">🔇</span>
+        <span class="tts-label" id="tts-label">เปิดเสียงอ่านโจทย์</span>
+        <span class="tts-status-dot" id="tts-status-dot"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Intro Screen ── -->
+  <div id="intro-screen" class="screen active">
+    <div class="intro-card">
+      <div class="intro-icon">📋</div>
+      <h2>คำแนะนำการทำแบบสอบถาม</h2>
+      <p>เลือกคำตอบที่อธิบายทางเลือกที่ดีที่สุดของคุณ <strong>สามารถเลือกได้มากกว่าหนึ่งคำตอบ</strong> ถ้าคำตอบเดียวไม่เพียงพอ เว้นวางไว้ในข้อที่ไม่เกี่ยวข้องกับคุณ</p>
+      <div class="intro-stats">
+        <div class="stat-box">
+          <div class="num">16</div>
+          <div class="lbl">คำถาม</div>
+        </div>
+        <div class="stat-box">
+          <div class="num">~5</div>
+          <div class="lbl">นาที</div>
+        </div>
+        <div class="stat-box">
+          <div class="num">4</div>
+          <div class="lbl">สไตล์</div>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary"
+            style="width:100%; justify-content:center; font-size:1rem; padding:16px;"
+            onclick="startQuiz()">
+      เริ่มทำแบบสอบถาม →
+    </button>
+  </div>
+
+  <!-- ── Quiz Screen ── -->
+  <div id="quiz-screen" class="screen">
+    <div class="progress-wrap">
+      <div class="progress-info">
+        <span class="progress-label">ความคืบหน้า</span>
+        <span class="progress-count"><span id="cur-q">1</span> / 16</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <div class="question-card" id="question-card">
+      <div class="q-number" id="q-number">ข้อที่ 01 / 16</div>
+      <!-- TTS wave indicator -->
+      <div class="tts-speaking-bar" id="tts-speaking-bar">
+        <span></span><span></span><span></span><span></span><span></span>
+        <span style="font-size:10px;color:var(--accent-a);margin-left:6px;font-family:'IBM Plex Mono',monospace;letter-spacing:.5px;">กำลังอ่าน...</span>
+      </div>
+      <div class="q-text"   id="q-text"></div>
+      <div class="multi-note">💡 สามารถเลือกได้มากกว่าหนึ่งคำตอบ</div>
+      <div class="options"  id="options-list"></div>
+    </div>
+
+    <div class="nav-area">
+      <button class="btn btn-ghost"   id="btn-back" onclick="prevQuestion()" disabled>← ย้อนกลับ</button>
+      <button class="btn btn-primary" id="btn-next" onclick="nextQuestion()">ถัดไป →</button>
+    </div>
+  </div>
+
+  <!-- ── Result Screen ── -->
+  <div id="result-screen" class="screen">
+    <div class="result-header">
+      <h2>🎉 ผลลัพธ์ของคุณ</h2>
+      <p>รูปแบบการเรียนรู้ตามแบบ VARK</p>
+      <div id="dominant-display"></div>
+    </div>
+
+    <div class="scores-grid" id="scores-grid"></div>
+
+    <!-- Hidden data storage (ไม่แสดงใน UI) -->
+    <div class="export-section" aria-hidden="true">
+      <div id="data-preview" style="display:none;"></div>
+    </div>
+    <div class="sessions-section" aria-hidden="true">
+      <div id="session-list"></div>
+    </div>
+
+    <!-- ── Next Step CTA ── -->
+    <div class="next-step-card">
+      <h3>✨ พร้อมเรียนแบบที่ใช่สำหรับคุณ?</h3>
+      <p>อัปโหลด PDF ของคุณ แล้วระบบจะสร้างสื่อการเรียนรู้<br>ที่ตรงกับสไตล์ <strong id="next-style-label">VARK</strong> ของคุณโดยเฉพาะ</p>
+      <button class="btn-next-step" onclick="goToStudy()">
+        ไปยังหน้าเรียนส่วนตัว →
+      </button>
+    </div>
+
+    <button class="btn-restart" onclick="restartQuiz()">🔄 ทำแบบสอบถามใหม่</button>
+  </div>
+
+</div><!-- /.container -->
+
+<div class="toast" id="toast"></div>
+
+<script src="main.js"></script>
+<script>
+  // Update CTA label after results render
+  const _origShow = showResults;
+  // Patch to update label after dominant is known
+  document.addEventListener('DOMContentLoaded', () => {});
+</script>
+</body>
+</html>
