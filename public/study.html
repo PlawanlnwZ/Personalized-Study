@@ -657,6 +657,8 @@ body.col-resizing * { pointer-events: none !important; }
   border-radius: 100px;
 }
 .yt-tag-skel:nth-child(2) { width: 36px; }
+.yt-tag-skel:nth-child(3) { width: 44px; animation-delay: 0.1s; }
+.yt-tag-skel:nth-child(4) { width: 30px; animation-delay: 0.2s; }
 .yt-title {
   font-size: 11px; font-weight: 600; color: var(--white); line-height: 1.35;
   margin-bottom: 2px; display: -webkit-box;
@@ -701,6 +703,118 @@ body.col-resizing * { pointer-events: none !important; }
 .empty-state { text-align: center; padding: 34px 16px; color: var(--text-dim); }
 .empty-state .es-icon { font-size: 30px; margin-bottom: 9px; display: block; }
 .empty-state p { font-size: 12px; line-height: 1.7; }
+
+/* Mermaid diagram container */
+.mermaid-wrap {
+  margin: 14px 0;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap svg { max-width: 100%; height: auto; }
+.mermaid-loading {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  padding: 20px;
+  animation: pulse-load 1.2s ease infinite;
+}
+@keyframes pulse-load {
+  0%,100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+/* Mermaid diagram container */
+.mermaid-wrap {
+  margin: 14px 0;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap svg { max-width: 100%; height: auto; }
+.mermaid-loading {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  padding: 20px;
+  animation: pulse-load 1.2s ease infinite;
+}
+@keyframes pulse-load {
+  0%,100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+/* HTML Tree fallback for mindmap */
+.mm-root {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--accent-v), #a78bff);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px 22px;
+  border-radius: 100px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 18px rgba(108,143,255,0.25);
+}
+.mm-root-children {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: flex-start;
+}
+.mm-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 110px;
+  max-width: 200px;
+}
+.mm-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  align-items: stretch;
+}
+.mm-node {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  line-height: 1.4;
+  text-align: left;
+  word-break: break-word;
+}
+.mm-level1 {
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  border-radius: 9px;
+}
+.mm-level2 {
+  background: rgba(255,255,255,0.03);
+  border-left: 2px solid;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding-left: 10px;
+  border-radius: 0 6px 6px 0;
+}
+.mm-level3 {
+  color: var(--text-dim);
+  font-size: 10px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border2);
+  border-radius: 0 4px 4px 0;
+}
 
 /* Skeleton */
 .skeleton {
@@ -859,7 +973,25 @@ body.col-resizing * { pointer-events: none !important; }
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
 <script>
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    background:       '#1c2030',
+    primaryColor:     '#6c8fff',
+    primaryTextColor: '#e8eaf2',
+    primaryBorderColor:'#2a2f45',
+    lineColor:        '#5cd6b0',
+    secondaryColor:   '#202436',
+    tertiaryColor:    '#161920',
+    edgeLabelBackground:'#202436',
+    fontSize:         '13px',
+  },
+  mindmap: { padding: 16 },
+  flowchart: { htmlLabels: true, curve: 'basis' },
+});
 const API_BASE = 'http://localhost:8000';
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -1179,6 +1311,8 @@ function renderVARKGuide(md, varkScores, images = []) {
 
   el.style.display = 'block';
   document.getElementById('like-bar').style.display = 'flex';
+  // Render mermaid diagrams (mindmap, flowchart etc.) after DOM is ready
+  setTimeout(() => renderMermaidBlocks(el), 0);
 }
 
 // ─── MARKDOWN PARSER ──────────────────────────────────────────────
@@ -1205,7 +1339,18 @@ function parseMD(md) {
       var code = [];
       i++;
       while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
-      out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+      // ── Mermaid diagrams: render instead of showing raw code ──
+      if (lang === 'mermaid') {
+        var mermaidId = 'mermaid-' + Math.random().toString(36).slice(2, 8);
+        var mermaidSrc = code.join('\n');
+        out.push(
+          '<div class="mermaid-wrap" data-src="' + mermaidSrc.replace(/"/g,'&quot;') + '" id="' + mermaidId + '">' +
+          '<div class="mermaid-loading">⟳ กำลัง render แผนผัง...</div>' +
+          '</div>'
+        );
+      } else {
+        out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+      }
       i++; continue;
     }
 
@@ -1339,10 +1484,44 @@ function renderVideos(videos, varkScores) {
     return;
   }
 
+  // ── Cap at 4 videos, prioritise by VARK dominant match ──────
+  const dominant = varkScores.dominant || 'R';
+  const VARK_FORMAT_HINT = {
+    V: ['animation','diagram','chart','visual','infographic','slides'],
+    A: ['lecture','talk','podcast','explained','discussion','interview'],
+    R: ['tutorial','guide','notes','walkthrough','documentation','code'],
+    K: ['hands-on','demo','practice','build','project','exercise'],
+  };
+  const hints = VARK_FORMAT_HINT[dominant] || [];
+
+  function matchScore(v) {
+    const haystack = (v.title + ' ' + (v.channel || '')).toLowerCase();
+    return hints.reduce((s, h) => s + (haystack.includes(h) ? 1 : 0), 0);
+  }
+
+  const capped = videos
+    .slice()                                            // don't mutate original
+    .sort((a, b) => matchScore(b) - matchScore(a))     // best match first
+    .slice(0, 4);                                       // max 4
+
   empty.style.display = 'none';
   tp.style.display    = 'block';
   grid.innerHTML      = '';
   grid.style.display  = 'flex';
+
+  // Section header showing how many / why
+  const cfg = VARK_CFG[dominant];
+  const headerDiv = document.createElement('div');
+  headerDiv.style.cssText = `
+    display:flex; align-items:center; gap:8px; margin-bottom:4px;
+    font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700;
+    letter-spacing:1px; text-transform:uppercase;
+  `;
+  headerDiv.innerHTML = `
+    <span style="color:${cfg.color};">${cfg.emoji} ${cfg.label} — วิดีโอแนะนำ</span>
+    <span style="color:var(--text-dim); font-weight:400;">${capped.length} รายการ</span>
+  `;
+  grid.appendChild(headerDiv);
 
   // Build sorted VARK order + weight description for Typhoon prompt
   const order = ['V','A','R','K']
@@ -1356,7 +1535,7 @@ function renderVideos(videos, varkScores) {
     return `${k}=${pct}% (${name})`;
   }).join(', ');
 
-  videos.forEach((v, idx) => {
+  capped.forEach((v, idx) => {
     const vid  = v.video_id;
     const card = document.createElement('div');
     card.className = 'yt-card';
@@ -1389,6 +1568,8 @@ function renderVideos(videos, varkScores) {
       <div class="yt-footer">
         <div class="yt-info">
           <div class="yt-vark-tags" id="vtags-${vid}">
+            <span class="yt-tag-skel"></span>
+            <span class="yt-tag-skel"></span>
             <span class="yt-tag-skel"></span>
             <span class="yt-tag-skel"></span>
           </div>
@@ -1446,7 +1627,7 @@ async function analyzeVideoVark(video, varkWeightDesc, order) {
     const primaryScore = order[0]?.score || 0;
     const tags = order.length ? [order[0].k] : ['R'];
     for (const { k, score } of order.slice(1)) {
-      if (score >= primaryScore * 0.5 && tags.length < 3) tags.push(k);
+      if (score >= primaryScore * 0.5 && tags.length < 4) tags.push(k);
     }
     return { vark: tags, subtopics: [] };
   }
@@ -1681,6 +1862,167 @@ function stopMic() {
 }
 
 // ─── TOAST ────────────────────────────────────────────────────
+// ─── MERMAID RENDER ───────────────────────────────────────────
+// เรียกหลัง parseMD ฉีด HTML เข้า DOM เสร็จ
+// ── Sanitize mermaid source: wrap Thai/special-char labels in quotes ──────────
+function sanitizeMermaidSrc(src) {
+  const lines = src.split('\n');
+  const isMindmap = /^mindmap/i.test(src.trim());
+
+  return lines.map((line, li) => {
+    if (li === 0) return line; // keep directive line (mindmap / flowchart etc.)
+
+    // Find indentation + content
+    const indentMatch = line.match(/^(\s*)(.*)/);
+    if (!indentMatch) return line;
+    const indent  = indentMatch[1];
+    let   content = indentMatch[2].trim();
+    if (!content) return line;
+
+    // For mindmap: wrap node text in quotes if it contains Thai or special chars
+    // but leave shape-wrappers like ((text)) [text] {text} alone
+    if (isMindmap) {
+      // Already has shape wrapper → sanitize inner text only
+      const shapeMatch = content.match(/^(\(*|\[+|\{+)(.+?)(\)*|\]+|\}+)$/);
+      if (shapeMatch) {
+        const open  = shapeMatch[1];
+        const inner = shapeMatch[2];
+        const close = shapeMatch[3];
+        // Escape quotes inside inner text
+        const safe = inner.replace(/"/g, "'");
+        return indent + open + safe + close;
+      }
+      // Plain text node → wrap in quotes if needed
+      if (/[ก-๙\u0E00-\u0E7F()\[\]{}<>:;,!?@#$%^&*=+|\\]/.test(content)) {
+        const safe = content.replace(/"/g, "'");
+        return indent + '"' + safe + '"';
+      }
+    }
+    return line;
+  }).join('\n');
+}
+
+// ── Parse mindmap text into a tree and render as HTML ─────────────────────────
+function parseMindmapToTree(src) {
+  const lines = src.split('\n').filter(l => l.trim() && !/^mindmap/i.test(l.trim()));
+  const root  = { label: 'Mind Map', depth: -1, children: [] };
+  const stack = [root];
+
+  for (const line of lines) {
+    const m = line.match(/^(\s*)(.*)/);
+    if (!m) continue;
+    const depth   = m[1].length;
+    let   rawText = m[2].trim();
+    if (!rawText) continue;
+
+    // Strip shape wrappers: ((x)) [x] {x} (x)
+    rawText = rawText
+      .replace(/^\(\((.+?)\)\)$/, '$1')
+      .replace(/^\[(.+?)\]$/, '$1')
+      .replace(/^\{(.+?)\}$/, '$1')
+      .replace(/^\((.+?)\)$/, '$1')
+      .replace(/^"+|"+$/g, '');
+
+    const node = { label: rawText, depth, children: [] };
+
+    // Pop stack until parent is shallower
+    while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop();
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  }
+  return root;
+}
+
+function renderTreeHTML(node, isRoot) {
+  const VARK_COLORS = ['#6c8fff','#ff7c5c','#5cd6b0','#f5c842','#a78bff','#ff9f7c'];
+  if (isRoot) {
+    // Root node — big central bubble
+    let html = `<div class="mm-root">${node.label}</div>`;
+    if (node.children.length) {
+      html += '<div class="mm-children mm-root-children">';
+      node.children.forEach((child, ci) => {
+        const col = VARK_COLORS[ci % VARK_COLORS.length];
+        html += `<div class="mm-branch" style="--branch-color:${col};">`;
+        html += `<div class="mm-node mm-level1" style="border-color:${col};color:${col};">${child.label}</div>`;
+        if (child.children.length) {
+          html += '<div class="mm-children">';
+          child.children.forEach(gc => {
+            html += `<div class="mm-node mm-level2" style="border-left:2px solid ${col}40;">${gc.label}</div>`;
+            if (gc.children.length) {
+              html += '<div class="mm-children">';
+              gc.children.forEach(ggc => {
+                html += `<div class="mm-node mm-level3">${ggc.label}</div>`;
+              });
+              html += '</div>';
+            }
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    return html;
+  }
+  return '';
+}
+
+async function renderMermaidBlocks(container) {
+  const wraps = container.querySelectorAll('.mermaid-wrap');
+  if (!wraps.length) return;
+
+  // Remove stale mermaid error nodes Mermaid may have injected into <body>
+  document.querySelectorAll('svg[id^="dmermaid"]').forEach(el => el.remove());
+
+  for (const wrap of wraps) {
+    const src = wrap.dataset.src;
+    if (!src) continue;
+
+    // Try 1: sanitize then attempt Mermaid SVG render
+    let rendered = false;
+    try {
+      const cleanSrc = sanitizeMermaidSrc(src);
+      const uid = wrap.id + '-svg';
+      // Remove any leftover SVG element with same id
+      document.getElementById(uid)?.remove();
+      const { svg } = await mermaid.render(uid, cleanSrc);
+      wrap.innerHTML = svg;
+      const svgEl = wrap.querySelector('svg');
+      if (svgEl) {
+        svgEl.style.maxWidth = '100%';
+        svgEl.style.height   = 'auto';
+        svgEl.removeAttribute('width');
+      }
+      rendered = true;
+    } catch (e) {
+      console.info('Mermaid SVG render failed, using HTML tree fallback:', e.message);
+      // Clean up any partial SVG injected into body by Mermaid
+      document.querySelectorAll('svg[id$="-svg"]').forEach(el => {
+        if (!el.closest('.mermaid-wrap')) el.remove();
+      });
+    }
+
+    // Try 2: HTML tree fallback (works with any language including Thai)
+    if (!rendered) {
+      try {
+        const tree = parseMindmapToTree(src);
+        wrap.innerHTML = renderTreeHTML(tree, true);
+      } catch(e2) {
+        // Last resort: plain list
+        const plain = src.split('\n')
+          .filter(l => l.trim() && !/^mindmap|^flowchart|^graph/i.test(l.trim()))
+          .map(l => {
+            const depth = l.match(/^(\s*)/)[1].length;
+            const text  = l.trim().replace(/^["'({\[]+|["')}\]]+$/g,'');
+            const pad   = '&nbsp;'.repeat(depth * 2);
+            return `<div style="padding:2px 0;font-size:12px;color:var(--text);">${pad}${depth > 0 ? '· ' : ''}${text}</div>`;
+          }).join('');
+        wrap.innerHTML = `<div style="padding:8px;">${plain}</div>`;
+      }
+    }
+  }
+}
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;

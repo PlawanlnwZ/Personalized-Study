@@ -347,12 +347,79 @@ def compile_and_save(model_path: str = "vark_model.json", api_key: Optional[str]
 # 7. Load for runtime
 # ──────────────────────────────────────────────
 def load_module(model_path: str = "vark_model.json") -> VARKModule:
+    """
+    Load compiled demos จาก vark_model.json เข้าสู่ VARKModule
+
+    DSPy บันทึก JSON ต่างกันตามเวอร์ชัน:
+      - เก่า: { "generate": { "demos": [...] } }
+      - ใหม่: { "generate.predict": { "demos": [...] } }  หรือ
+              { "generate.predict.demos": [...] }
+    ฟังก์ชันนี้ลองทุก pattern จนเจอ demos
+    """
     module = VARKModule()
-    if os.path.exists(model_path):
-        module.load(model_path)
-        print(f"✅ Loaded compiled module from {model_path}")
-    else:
+
+    if not os.path.exists(model_path):
         print("⚠️  No compiled model found — using zero-shot module")
+        return module
+
+    try:
+        with open(model_path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+
+        # DEBUG: แสดง top-level keys ช่วย diagnose ครั้งแรก
+        print(f"[load_module] JSON keys: {list(state.keys())[:10]}")
+
+        # ลองหา demos จากทุก pattern ที่ DSPy เคย/อาจใช้
+        demos_raw = []
+
+        # Pattern A — DSPy เก่า: { "generate": { "demos": [...] } }
+        if not demos_raw:
+            demos_raw = (state.get("generate") or {}).get("demos", [])
+
+        # Pattern B — DSPy ใหม่: { "generate.predict": { "demos": [...] } }
+        if not demos_raw:
+            demos_raw = (state.get("generate.predict") or {}).get("demos", [])
+
+        # Pattern C — flat key: { "generate.predict.demos": [...] }
+        if not demos_raw:
+            demos_raw = state.get("generate.predict.demos", [])
+
+        # Pattern D — VARKModuleLite ใหม่ใช้ ChainOfThought key ต่างออกไป
+        if not demos_raw:
+            for key in state:
+                val = state[key]
+                if isinstance(val, dict) and "demos" in val and val["demos"]:
+                    demos_raw = val["demos"]
+                    print(f"[load_module] Found demos under key: '{key}'")
+                    break
+                elif isinstance(val, list) and val and isinstance(val[0], dict):
+                    # demos อาจเป็น list โดยตรงใต้บาง key
+                    if "augmented" in str(val[0]) or "context" in str(val[0]):
+                        demos_raw = val
+                        print(f"[load_module] Found demos list under key: '{key}'")
+                        break
+
+        if demos_raw:
+            demos = [dspy.Example(**d) if not isinstance(d, dspy.Example) else d
+                     for d in demos_raw]
+            # inject เข้า generate stage (ลองทั้ง .predict.demos และ .demos)
+            try:
+                module.generate.predict.demos = demos
+                print(f"✅ Loaded {len(demos)} demos → generate.predict.demos")
+            except AttributeError:
+                try:
+                    module.generate.demos = demos
+                    print(f"✅ Loaded {len(demos)} demos → generate.demos")
+                except AttributeError:
+                    print("⚠️  Cannot inject demos — attribute path not found")
+        else:
+            print("⚠️  No demos found in any known pattern — using zero-shot")
+            print(f"    Full JSON structure: {json.dumps(state, ensure_ascii=False)[:400]}")
+
+    except Exception as e:
+        print(f"⚠️  DSPy startup warning (non-fatal): {e}")
+        print("     Continuing with zero-shot VARKModule")
+
     return module
 
 
