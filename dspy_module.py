@@ -139,42 +139,6 @@ class VARKProjector(dspy.Signature):
 
 
 # ──────────────────────────────────────────────
-# 2c. Signature Lite — ใช้ตอน compile/train เท่านั้น
-# ──────────────────────────────────────────────
-class VARKProjectorLite(dspy.Signature):
-    """สร้างสื่อการเรียนรู้แบบ VARK จากเนื้อหาที่กำหนด"""
-    context: str = dspy.InputField(desc="เนื้อหาจากเอกสาร")
-    vark_style: str = dspy.InputField(desc='JSON เช่น {"V":60,"dominant":"V"}')
-    learning_material: str = dspy.OutputField(
-        desc=(
-            "สื่อการเรียนรู้ Markdown อย่างน้อย 500-700 คำ ปรับตาม VARK dominant อย่างเคร่งครัด. "
-            "ภาษา: ใช้ภาษาเดียวกับ context — ถ้า context เป็นไทย ต้องตอบภาษาไทย ห้ามสลับเป็นอังกฤษ "
-            "(ยกเว้นศัพท์เฉพาะ/ตัวอย่างประโยคที่อยู่ในเนื้อหาเดิม): "
-            "V=ต้องมีตาราง Markdown (|col|col|) และใช้คำ table/chart/diagram/visual/แผนภาพ/แสดง; "
-            "A=ต้องเขียนในรูป story (เล่าเรื่อง) มี narrator บรรยาย แล้วแทรก dialogue ของ Aural เป็นจุดๆ "
-            "ใช้คำ story/imagine/dialogue/เล่า/สนทนา. "
-            "**โครงสร้าง A:** ส่วนใหญ่ (>=70%) เป็นย่อหน้าบรรยาย/อธิบายธรรมดา (ไม่มี `>`); "
-            "ใช้ blockquote เฉพาะ Situation+dialogue: ขึ้นต้น `> Situation: <ฉาก>` "
-            "แล้วบรรทัดถัดไป `> ชื่อคน: \"...\"` เช่น `> ครู: \"...\"`, `> นักเรียน: \"...\"`. "
-            "**จำนวนบล็อกตามค่า A:** A>=70 ใส่ 3–5 บล็อก, A 40–69 ใส่ 2–3, "
-            "A 20–39 ใส่แค่ 1–2 บล็อก, A<20 ใส่ 0–1 บล็อก. ห้ามต่อกันเกิน 2. "
-            "ห้ามใช้ `>` กับ heading, คำอธิบาย, note, สรุป, ตัวอย่างประโยค, bullet — "
-            "ใช้ได้เฉพาะ Situation+dialogue เท่านั้น; "
-            "R=อธิบายเป็นข้อความ format ดี (heading, bullet, นิยาม, ตาราง) ครบถ้วน "
-            "ห้ามสั่งให้ผู้เรียน 'สรุปด้วยภาษาตัวเอง' — ให้แนวทางการอ่าน/จดโน้ตแทน "
-            "ใช้คำ definition/outline/note/นิยาม/หลักการ/แนวทาง/ดังนี้; "
-            "K=ต้องมี step-by-step และ exercise ให้ผู้เรียนลงมือทำ "
-            "และใช้คำ try/fill in/match/complete/apply/exercise/practice/ขั้นตอน/ลองทำ/จับคู่/เติม/ฝึก. "
-            "ทุกแบบฝึกหัด/โจทย์ ต้องใส่เฉลยใน fenced block ภาษา 'เฉลย' เช่น ```เฉลย\\n<คำตอบ>\\n``` "
-            "เพื่อให้ frontend แสดงเป็นปุ่มกดดูเฉลย"
-        )
-    )
-    youtube_queries: str = dspy.OutputField(
-        desc='JSON array เท่านั้น 3 queries เช่น ["topic tutorial", "หัวข้อ ภาษาไทย"]'
-    )
-
-
-# ──────────────────────────────────────────────
 # 3. DSPy Modules
 # ──────────────────────────────────────────────
 
@@ -213,19 +177,6 @@ class VARKModule(dspy.Module):
             key_concepts=analysis.key_concepts,
             teaching_strategy=analysis.teaching_strategy,
         )
-
-
-class VARKModuleLite(dspy.Module):
-    """
-    Compile/train module — ChainOfThought เดี่ยว ประหยัด token
-    ใช้ CoT แทน Predict เพื่อให้ตัวอย่างที่ bootstrap มีคุณภาพสูงขึ้น
-    """
-    def __init__(self):
-        super().__init__()
-        self.generate = dspy.ChainOfThought(VARKProjectorLite)
-
-    def forward(self, context: str, vark_style: str) -> dspy.Prediction:
-        return self.generate(context=context, vark_style=vark_style)
 
 
 # ──────────────────────────────────────────────
@@ -347,6 +298,22 @@ VARK_KEYWORDS = {
           "try", "fill in", "match", "complete", "apply",
           "จับคู่", "เติม", "ฝึก", "กิจกรรม", "scenario"],
 }
+
+
+import re as _re
+
+# A-style structural pattern — ตรงกับที่ signature ของ VARKProjector บังคับ:
+#   > Situation: <บรรยายฉาก>
+#   > <ชื่อ>: "..."
+# ถ้ามีทั้งสองส่วนถือว่า output ทำตาม A convention ครบ
+# ไม่ว่าจะใช้ภาษาพูดทั่วไปหรือราชาศัพท์
+_A_SITUATION_RE = _re.compile(r">\s*situation\s*:", _re.IGNORECASE)
+_A_DIALOGUE_RE  = _re.compile(r'^>\s*[^>:\n]+:\s*["“”]', _re.MULTILINE)
+
+
+def _has_a_structure(material: str) -> bool:
+    """ตรวจว่า output มีโครงสร้าง A (Situation block + blockquote dialogue) ครบ"""
+    return bool(_A_SITUATION_RE.search(material)) and bool(_A_DIALOGUE_RE.search(material))
 
 QUALITY_INDICATORS = [
     "##",       # มี heading (โครงสร้างชัด)
@@ -535,7 +502,10 @@ def get_trainset() -> list[dspy.Example]:
     ]
 
 # ──────────────────────────────────────────────
-# 6. Compile (ใช้ VARKModuleLite + BootstrapFewShot)
+# 6. Compile (ใช้ VARKModule ตัวเต็ม + BootstrapFewShot)
+#     compile target ต้องเป็น VARKModule (2-stage) เพื่อให้ demos ที่บันทึก
+#     มี field ครบ (key_concepts, teaching_strategy, image_queries)
+#     ตรงกับ signature ที่ runtime ใช้จริง
 # ──────────────────────────────────────────────
 def compile_and_save(model_path: str = "vark_model.json", api_key: Optional[str] = None):
     configure_lm(api_key)
@@ -544,16 +514,24 @@ def compile_and_save(model_path: str = "vark_model.json", api_key: Optional[str]
 
     trainset = get_trainset()
 
-    # max_bootstrapped_demos + max_labeled_demos ควรรวมกันไม่เกิน len(trainset)
-    # trainset ปัจจุบันมี 8 examples (V×2, A×2, R×2, K×2)
-    # BootstrapFewShot จะวน trainset จนครบ max_bootstrapped_demos
+    # trainset order: V V K R K R A A (8 examples)
+    # ก่อนหน้านี้ใช้ max_bootstrapped_demos=4 → หยุดที่ index 0–3 (V,V,K,R)
+    # ทำให้ A ไม่เคยถูก bootstrap เลย — runtime จึงไม่มี demo สไตล์ A
+    # ปรับเป็น 8 เพื่อครอบคลุมทุก style
+    #
+    # max_labeled_demos=0 — get_trainset() คืน example ที่มีแค่ input (ไม่มี
+    # learning_material/youtube_queries) จึงใช้เป็น labeled demo ไม่ได้
+    # metric_threshold=0.5 — กรอง demo คุณภาพต่ำออก
+    # (เคยมี A demo ที่ F1=0.07 หลุดผ่านเพราะ default รับทุก score > 0
+    #  ทำให้ few-shot สอน model ผิดสไตล์)
     teleprompter = BootstrapFewShot(
         metric=vark_metric,
-        max_bootstrapped_demos=4,   # 4 augmented + 4 labeled = 8 demo slots ตรงกับ trainset
-        max_labeled_demos=4,        # 1 labeled ต่อ dominant style
-        max_rounds=2,               # วน 2 รอบ เผื่อ example บางตัวไม่ผ่าน metric รอบแรก
+        metric_threshold=0.5,
+        max_bootstrapped_demos=8,
+        max_labeled_demos=0,
+        max_rounds=2,
     )
-    compiled = teleprompter.compile(VARKModuleLite(), trainset=trainset)
+    compiled = teleprompter.compile(VARKModule(), trainset=trainset)
 
     compiled.save(model_path)
     print(f"✅ Compiled model saved to {model_path}")
@@ -565,13 +543,14 @@ def compile_and_save(model_path: str = "vark_model.json", api_key: Optional[str]
 # ──────────────────────────────────────────────
 def load_module(model_path: str = "vark_model.json") -> VARKModule:
     """
-    Load compiled demos จาก vark_model.json เข้าสู่ VARKModule
+    Load compiled demos จาก vark_model.json เข้า VARKModule (2-stage)
 
-    DSPy บันทึก JSON ต่างกันตามเวอร์ชัน:
-      - เก่า: { "generate": { "demos": [...] } }
-      - ใหม่: { "generate.predict": { "demos": [...] } }  หรือ
-              { "generate.predict.demos": [...] }
-    ฟังก์ชันนี้ลองทุก pattern จนเจอ demos
+    Strategy:
+      1) ใช้ DSPy native module.load() ก่อน — handle JSON layout ทุก version
+         และ inject demos เข้าทั้ง analyze + generate ให้อัตโนมัติ
+      2) Fallback: parse JSON เองและ inject แยกแต่ละ stage
+         (รองรับไฟล์เก่าที่ compile ด้วย VARKModuleLite ซึ่งเก็บ demos
+          ใต้ key 'generate' เท่านั้น)
     """
     module = VARKModule()
 
@@ -579,58 +558,43 @@ def load_module(model_path: str = "vark_model.json") -> VARKModule:
         print("⚠️  No compiled model found — using zero-shot module")
         return module
 
+    # ── Path 1: DSPy native loader ─────────────────────────────
+    try:
+        module.load(model_path)
+        a = len(getattr(module.analyze.predict, "demos", []) or [])
+        g = len(getattr(module.generate.predict, "demos", []) or [])
+        if a or g:
+            print(f"✅ Loaded VARKModule (analyze: {a} demos, generate: {g} demos)")
+            return module
+        print("[load_module] native load: no demos populated, falling back to manual parse")
+    except Exception as e:
+        print(f"[load_module] native load failed ({e}), falling back to manual parse")
+
+    # ── Path 2: manual JSON parse ──────────────────────────────
     try:
         with open(model_path, "r", encoding="utf-8") as f:
             state = json.load(f)
-
-        # DEBUG: แสดง top-level keys ช่วย diagnose ครั้งแรก
         print(f"[load_module] JSON keys: {list(state.keys())[:10]}")
 
-        # ลองหา demos จากทุก pattern ที่ DSPy เคย/อาจใช้
-        demos_raw = []
+        def _extract(stage: str) -> list:
+            for key in (stage, f"{stage}.predict"):
+                v = state.get(key)
+                if isinstance(v, dict) and v.get("demos"):
+                    return v["demos"]
+            flat = state.get(f"{stage}.predict.demos") or state.get(f"{stage}.demos")
+            return flat or []
 
-        # Pattern A — DSPy เก่า: { "generate": { "demos": [...] } }
-        if not demos_raw:
-            demos_raw = (state.get("generate") or {}).get("demos", [])
+        analyze_raw  = _extract("analyze")
+        generate_raw = _extract("generate")
 
-        # Pattern B — DSPy ใหม่: { "generate.predict": { "demos": [...] } }
-        if not demos_raw:
-            demos_raw = (state.get("generate.predict") or {}).get("demos", [])
+        loaded_a = _inject_demos(module.analyze,  analyze_raw)  if analyze_raw  else False
+        loaded_g = _inject_demos(module.generate, generate_raw) if generate_raw else False
 
-        # Pattern C — flat key: { "generate.predict.demos": [...] }
-        if not demos_raw:
-            demos_raw = state.get("generate.predict.demos", [])
-
-        # Pattern D — VARKModuleLite ใหม่ใช้ ChainOfThought key ต่างออกไป
-        if not demos_raw:
-            for key in state:
-                val = state[key]
-                if isinstance(val, dict) and "demos" in val and val["demos"]:
-                    demos_raw = val["demos"]
-                    print(f"[load_module] Found demos under key: '{key}'")
-                    break
-                elif isinstance(val, list) and val and isinstance(val[0], dict):
-                    # demos อาจเป็น list โดยตรงใต้บาง key
-                    if "augmented" in str(val[0]) or "context" in str(val[0]):
-                        demos_raw = val
-                        print(f"[load_module] Found demos list under key: '{key}'")
-                        break
-
-        if demos_raw:
-            demos = [dspy.Example(**d) if not isinstance(d, dspy.Example) else d
-                     for d in demos_raw]
-            # inject เข้า generate stage (ลองทั้ง .predict.demos และ .demos)
-            try:
-                module.generate.predict.demos = demos
-                print(f"✅ Loaded {len(demos)} demos → generate.predict.demos")
-            except AttributeError:
-                try:
-                    module.generate.demos = demos
-                    print(f"✅ Loaded {len(demos)} demos → generate.demos")
-                except AttributeError:
-                    print("⚠️  Cannot inject demos — attribute path not found")
+        if loaded_a or loaded_g:
+            print(f"✅ Manual injection — analyze: {len(analyze_raw) if loaded_a else 0} demos, "
+                  f"generate: {len(generate_raw) if loaded_g else 0} demos")
         else:
-            print("⚠️  No demos found in any known pattern — using zero-shot")
+            print("⚠️  No demos found — using zero-shot VARKModule")
             print(f"    Full JSON structure: {json.dumps(state, ensure_ascii=False)[:400]}")
 
     except Exception as e:

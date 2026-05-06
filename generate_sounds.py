@@ -1,3 +1,5 @@
+### อันนี้พี่ Pogus ไม่ต้องดูก็ได้ไม่มีอะไร
+
 """
 generate_sounds.py — Pre-generate VARK question audio files
 รัน script นี้เพื่อสร้างไฟล์เสียงทั้ง 32 ข้อ (Bank 1: 16 ข้อ + Bank 2: 16 ข้อ)
