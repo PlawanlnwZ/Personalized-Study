@@ -5,26 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Personalized Study — VARK</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  // Apply saved theme before paint to avoid flash
+  (function () {
+    var t = localStorage.getItem('__vark_theme__');
+    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  })();
+</script>
 <style>
 :root {
-  --bg:        #0d0f14;
-  --surface:   #161920;
-  --card:      #1c2030;
-  --card2:     #202436;
-  --border:    #2a2f45;
-  --border2:   #323756;
-  --accent-v:  #6c8fff;
-  --accent-a:  #ff7c5c;
-  --accent-r:  #5cd6b0;
-  --accent-k:  #f5c842;
-  --text:      #e8eaf2;
-  --text-muted:#7a80a0;
-  --text-dim:  #4a5070;
+  --bg:        #f4f6fb;
+  --surface:   #ffffff;
+  --card:      #ffffff;
+  --card2:     #f7f9fd;
+  --border:    #e1e5ee;
+  --border2:   #d1d6e3;
+  --accent-v:  #4f6df0;
+  --accent-a:  #ff6f4d;
+  --accent-r:  #14b48a;
+  --accent-k:  #e6a91f;
+  --text:      #15182a;
+  --text-muted:#5d6478;
+  --text-dim:  #9aa0b5;
   --white:     #ffffff;
+  --shadow-sm: 0 1px 2px rgba(21,24,42,0.04), 0 2px 6px rgba(21,24,42,0.06);
+  --shadow-md: 0 4px 12px rgba(21,24,42,0.08), 0 2px 4px rgba(21,24,42,0.04);
+  --chev-blue:   #2861e0;
+  --chev-blue-d: #1c4cbf;
+  --chev-green:  #10a96b;
+  --chev-green-d:#0e8a57;
   --left-w:    255px;
   --radius:    10px;
   --radius-lg: 16px;
 }
+
+/* ── Dark theme tokens ── */
+:root[data-theme="dark"] {
+  --bg:        #0e1016;
+  --surface:   #171a25;
+  --card:      #1d2030;
+  --card2:     #171a25;
+  --border:    #2a2e40;
+  --border2:   #3a3f54;
+  --text:      #e8eaf2;
+  --text-muted:#9aa0b5;
+  --text-dim:  #6d7286;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.35);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.3);
+}
+/* Override literal light-mode color blocks */
+:root[data-theme="dark"] .pdf-tab-item:hover { background: #232838; }
+:root[data-theme="dark"] .guide-content code,
+:root[data-theme="dark"] .guide-content pre,
+:root[data-theme="dark"] .guide-content th,
+:root[data-theme="dark"] .guide-content tr:nth-child(even) {
+  background: #1a1d2c;
+  color: var(--text);
+}
+:root[data-theme="dark"] .skeleton,
+:root[data-theme="dark"] .empty-state { background: #1a1d2c; }
+
+/* ── Theme toggle button (topnav) ── */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.theme-toggle-btn:hover { color: var(--accent-v); border-color: var(--accent-v); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -44,6 +102,7 @@ body {
   min-height: 50px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(21,24,42,0.04);
   display: flex;
   align-items: center;
   padding: 0 14px;
@@ -214,7 +273,7 @@ body.col-resizing * { pointer-events: none !important; }
   border: 1px solid transparent;
   min-width: 0;
 }
-.pdf-tab-item:hover { background: rgba(255,255,255,0.05); }
+.pdf-tab-item:hover { background: #eef1fa; }
 .pdf-tab-item.active {
   background: rgba(108,143,255,0.1);
   border-color: rgba(108,143,255,0.3);
@@ -230,7 +289,7 @@ body.col-resizing * { pointer-events: none !important; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pdf-tab-item.active .pdf-tab-name { color: var(--white); }
+.pdf-tab-item.active .pdf-tab-name { color: var(--accent-v); font-weight: 700; }
 .pdf-tab-pages {
   font-size: 9px;
   color: var(--text-dim);
@@ -318,12 +377,23 @@ body.col-resizing * { pointer-events: none !important; }
 .pdf-canvas-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 .pdf-page-canvas {
   max-width: 100%;
-  box-shadow: 0 2px 14px rgba(0,0,0,0.6);
+  box-shadow: 0 2px 12px rgba(21,24,42,0.18);
   border-radius: 2px;
   display: block;
 }
 /* keep old id selector for compatibility */
 #pdf-canvas { display: none; }
+/* ── PDF page number badge ── */
+.pdf-page-wrap { position: relative; display: inline-block; max-width: 100%; }
+.pdf-page-badge {
+  position: absolute; top: 5px; left: 5px;
+  background: rgba(21,24,42,0.78); border: 1px solid rgba(21,24,42,0.9);
+  color: #ffffff; font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  line-height: 1; pointer-events: none; z-index: 10;
+  opacity: 0.7; transition: opacity 0.2s;
+}
+.pdf-page-wrap:hover .pdf-page-badge { opacity: 1; }
 .viewer-empty {
   flex: 1;
   display: flex;
@@ -449,7 +519,7 @@ body.col-resizing * { pointer-events: none !important; }
 .btn-generate {
   height: 34px;
   padding: 0 14px;
-  background: linear-gradient(135deg, var(--accent-v), #a78bff);
+  background: linear-gradient(135deg, var(--accent-v), #8a6df0);
   border: none;
   border-radius: 7px;
   color: var(--white);
@@ -488,11 +558,13 @@ body.col-resizing * { pointer-events: none !important; }
 
 /* ── VARK Sections ── */
 .vark-section {
-  margin-bottom: 22px;
-  padding: 14px 15px;
-  border-radius: var(--radius);
-  background: rgba(255,255,255,0.018);
+  margin-bottom: 0;
+  padding: 10px 15px;
+  border-radius: 0;
+  background: transparent;
 }
+.vark-section:first-child { padding-top: 14px; }
+.vark-section:last-child  { padding-bottom: 14px; }
 
 .vark-section-badge {
   display: inline-flex;
@@ -509,33 +581,131 @@ body.col-resizing * { pointer-events: none !important; }
 }
 
 /* Guide markdown */
-.guide-content { font-size: 0.9rem; line-height: 1.85; color: var(--text); }
-.guide-content h1,.guide-content h2,.guide-content h3 { color: var(--white); font-weight: 700; margin: 16px 0 7px; line-height: 1.3; }
-.guide-content h1 { font-size: 1.1rem; }
-.guide-content h2 { font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
-.guide-content h3 { font-size: 0.92rem; color: var(--accent-v); }
-.guide-content p { margin-bottom: 9px; }
-.guide-content ul,.guide-content ol { padding-left: 18px; margin-bottom: 9px; }
-.guide-content li { margin-bottom: 4px; }
-.guide-content strong { color: var(--white); font-weight: 700; }
+.guide-content {
+  font-size: 0.92rem;
+  line-height: 1.8;
+  color: var(--text);
+  width: 100%;
+}
+.guide-content > *:first-child { margin-top: 0; }
+.guide-content > *:last-child { margin-bottom: 0; }
+.guide-content h1,.guide-content h2,.guide-content h3,.guide-content h4 {
+  color: var(--text); font-weight: 700; line-height: 1.35;
+}
+.guide-content h1 { font-size: 1.25rem; margin: 22px 0 10px; }
+.guide-content h2 {
+  font-size: 1.08rem;
+  margin: 24px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.guide-content h3 {
+  font-size: 0.98rem;
+  color: var(--accent-v);
+  margin: 20px 0 8px;
+}
+/* h4 = "activity header" — used for bold-only paragraphs that the model
+   emits as section titles (e.g., "กิจกรรมที่ 1: ..."). The accent bar
+   gives them clear hierarchy without overpowering h2/h3. */
+.guide-content h4 {
+  font-size: 0.95rem;
+  color: var(--text);
+  margin: 22px 0 10px;
+  padding: 8px 12px 8px 14px;
+  background: rgba(108,143,255,0.06);
+  border-left: 3px solid var(--accent-v);
+  border-radius: 0 6px 6px 0;
+  letter-spacing: 0.2px;
+}
+.guide-content h2 + p,
+.guide-content h3 + p,
+.guide-content h4 + p { margin-top: 0; }
+.guide-content p { margin: 0 0 12px; }
+.guide-content ul,.guide-content ol {
+  padding-left: 22px;
+  margin: 0 0 14px;
+}
+.guide-content li { margin-bottom: 6px; }
+.guide-content li::marker { color: var(--accent-v); }
+.guide-content ol li::marker { color: var(--accent-r); font-weight: 700; }
+.guide-content li > p { margin-bottom: 4px; }
+.guide-content strong { color: var(--text); font-weight: 700; }
 .guide-content em { color: var(--accent-r); font-style: italic; }
 .guide-content code {
-  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-  background: rgba(255,255,255,0.07); padding: 2px 5px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.82em;
+  background: #f1f3fa; padding: 2px 6px;
   border-radius: 4px; color: var(--accent-r);
 }
 .guide-content pre {
-  background: #080a0e; border: 1px solid var(--border);
+  background: #f1f3fa; border: 1px solid var(--border);
   border-radius: var(--radius); padding: 12px 14px;
-  overflow-x: auto; margin-bottom: 11px;
+  overflow-x: auto; margin: 0 0 14px;
+  font-size: 12px; line-height: 1.55;
 }
-.guide-content pre code { background: none; padding: 0; }
-.guide-content table { width: 100%; border-collapse: collapse; margin-bottom: 11px; font-size: 12px; }
-.guide-content th,.guide-content td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; }
-.guide-content th { background: rgba(255,255,255,0.04); color: var(--white); font-weight: 700; }
-.guide-content tr:nth-child(even) { background: rgba(255,255,255,0.02); }
-.guide-content blockquote { border-left: 3px solid var(--accent-v); padding: 7px 13px; background: rgba(108,143,255,0.05); border-radius: 0 6px 6px 0; margin-bottom: 9px; color: var(--text-muted); }
-.guide-content hr { border: none; border-top: 1px solid var(--border); margin: 13px 0; }
+.guide-content pre code { background: none; padding: 0; font-size: inherit; color: var(--text); }
+.guide-content table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 12px; }
+.guide-content th,.guide-content td { padding: 8px 11px; border: 1px solid var(--border); text-align: left; }
+.guide-content th { background: #f0f3fa; color: var(--text); font-weight: 700; }
+.guide-content tr:nth-child(even) { background: #fafbfd; }
+.guide-content blockquote {
+  border-left: 3px solid var(--accent-v);
+  padding: 8px 14px;
+  background: rgba(108,143,255,0.05);
+  border-radius: 0 6px 6px 0;
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+.guide-content hr {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 22px 0;
+  opacity: 0.7;
+}
+
+/* Hidden-answer block — rendered when the model emits a fenced
+   ```เฉลย ... ``` (or `answer`/`solution`/`spoiler`) block. */
+.guide-content .answer-block {
+  margin: 8px 0 14px;
+  border: 1px solid rgba(245,200,66,0.35);
+  border-radius: 8px;
+  background: rgba(245,200,66,0.05);
+  overflow: hidden;
+}
+.guide-content .answer-block > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--accent-k);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.18s;
+}
+.guide-content .answer-block > summary::-webkit-details-marker { display: none; }
+.guide-content .answer-block > summary::before {
+  content: '▸';
+  font-size: 0.78rem;
+  display: inline-block;
+  transition: transform 0.18s;
+}
+.guide-content .answer-block[open] > summary::before { transform: rotate(90deg); }
+.guide-content .answer-block[open] > summary .answer-summary-text::after {
+  content: ' (ปิด)';
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.guide-content .answer-block > summary:hover {
+  background: rgba(245,200,66,0.08);
+}
+.guide-content .answer-body {
+  padding: 10px 14px 4px;
+  border-top: 1px solid rgba(230,169,31,0.25);
+  background: rgba(230,169,31,0.04);
+}
+.guide-content .answer-body > *:last-child { margin-bottom: 6px; }
 
 /* Visual Image Gallery */
 .visual-gallery {
@@ -660,17 +830,37 @@ body.col-resizing * { pointer-events: none !important; }
 .yt-tag-skel:nth-child(3) { width: 44px; animation-delay: 0.1s; }
 .yt-tag-skel:nth-child(4) { width: 30px; animation-delay: 0.2s; }
 .yt-title {
-  font-size: 11px; font-weight: 600; color: var(--white); line-height: 1.35;
+  font-size: 11px; font-weight: 600; color: var(--text); line-height: 1.35;
   margin-bottom: 2px; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .yt-channel { font-size: 10px; color: var(--text-dim); }
+/* Pages covered range */
+.yt-pages-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.yt-pages-label { font-size: 9px; font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); }
+.yt-page-range {
+  font-size: 9px; font-family: 'IBM Plex Mono', monospace;
+  color: var(--accent-v); background: rgba(108,143,255,0.1);
+  border: 1px solid rgba(108,143,255,0.3); border-radius: 4px;
+  padding: 1px 6px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.yt-page-range:hover { background: rgba(108,143,255,0.25); color: #fff; }
+.yt-pages-skel {
+  display: inline-block; width: 36px; height: 13px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--card2) 25%, var(--border2) 50%, var(--card2) 75%);
+  background-size: 200% 100%; animation: shimmer 1.2s infinite;
+}
+/* Current page in toolbar */
+.page-cur-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--accent-v); font-weight: 700; white-space: nowrap;
+}
 .yt-subtopics {
   display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; min-height: 14px;
 }
 .yt-subtopic-chip {
   font-size: 9px; font-family: 'IBM Plex Mono', monospace;
-  color: var(--text-muted); background: rgba(255,255,255,0.04);
+  color: var(--text-muted); background: #f5f7fc;
   border: 1px solid var(--border2); border-radius: 4px;
   padding: 1px 5px; white-space: nowrap;
   max-width: 110px; overflow: hidden; text-overflow: ellipsis;
@@ -696,7 +886,7 @@ body.col-resizing * { pointer-events: none !important; }
 
 /* Transcribe */
 .transcribe-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; margin-top: 10px; }
-.transcribe-title { font-size: 11px; font-weight: 700; color: var(--white); margin-bottom: 5px; }
+.transcribe-title { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
 .transcribe-body { font-size: 12px; color: var(--text-muted); line-height: 1.7; min-height: 40px; white-space: pre-wrap; }
 
 /* Empty */
@@ -707,37 +897,38 @@ body.col-resizing * { pointer-events: none !important; }
 /* Mermaid diagram container */
 .mermaid-wrap {
   margin: 14px 0;
-  background: rgba(255,255,255,0.02);
+  background: #fafbfd;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
-  overflow-x: auto;
+  min-height: 220px;
+  max-height: 70vh;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  resize: vertical;
 }
-.mermaid-wrap svg { max-width: 100%; height: auto; }
-.mermaid-loading {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-family: 'IBM Plex Mono', monospace;
-  padding: 20px;
-  animation: pulse-load 1.2s ease infinite;
+/* Tall diagrams (mindmap, flowchart TD) — anchor to top so scrolling
+   reveals lower nodes instead of clipping them via flex centering. */
+.mermaid-wrap.mermaid-tall {
+  align-items: flex-start;
+  max-height: 80vh;
 }
-@keyframes pulse-load {
-  0%,100% { opacity: 0.4; }
-  50%      { opacity: 1; }
+.mermaid-wrap svg {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
 }
-
-/* Mermaid diagram container */
-.mermaid-wrap {
-  margin: 14px 0;
-  background: rgba(255,255,255,0.02);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  overflow-x: auto;
-  text-align: center;
+.mermaid-wrap.mermaid-tall svg {
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-height: 100%;
 }
-.mermaid-wrap svg { max-width: 100%; height: auto; }
 .mermaid-loading {
   font-size: 11px;
   color: var(--text-dim);
@@ -793,7 +984,7 @@ body.col-resizing * { pointer-events: none !important; }
   word-break: break-word;
 }
 .mm-level1 {
-  background: rgba(255,255,255,0.05);
+  background: #f0f3fa;
   border: 1.5px solid;
   font-weight: 700;
   font-size: 12px;
@@ -801,7 +992,7 @@ body.col-resizing * { pointer-events: none !important; }
   border-radius: 9px;
 }
 .mm-level2 {
-  background: rgba(255,255,255,0.03);
+  background: #f5f7fc;
   border-left: 2px solid;
   color: var(--text-muted);
   font-size: 11px;
@@ -840,11 +1031,169 @@ body.col-resizing * { pointer-events: none !important; }
 }
 .toast.show { transform: translateX(-50%) translateY(0); }
 
+/* Quiz */
+.quiz-diff-btn {
+  flex: 1; padding: 9px 6px; background: var(--card);
+  border: 1.5px solid var(--border); color: var(--text-muted);
+  border-radius: 8px; font-family: 'Sarabun', sans-serif;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  text-align: center; line-height: 1.4;
+}
+.quiz-diff-btn:hover { border-color: var(--border2); color: var(--text); }
+.quiz-diff-btn.active-easy   { background:rgba(92,214,176,0.12); border-color:rgba(92,214,176,0.6); color:#5cd6b0; }
+.quiz-diff-btn.active-medium { background:rgba(245,200,66,0.12);  border-color:rgba(245,200,66,0.6);  color:#f5c842; }
+.quiz-diff-btn.active-hard   { background:rgba(255,124,92,0.12); border-color:rgba(255,124,92,0.5); color:#ff7c5c; }
+.quiz-opt-btn {
+  display: block; width: 100%; text-align: left; margin-bottom: 6px;
+  padding: 9px 12px; background: #f5f7fc;
+  border: 1.5px solid var(--border); color: var(--text-muted);
+  border-radius: 8px; font-family: 'Sarabun', sans-serif; font-size: 12px;
+  cursor: pointer; transition: all 0.18s; line-height: 1.5;
+}
+.quiz-opt-btn:not(:disabled):hover { border-color: rgba(108,143,255,0.5); color: var(--text); }
+.quiz-opt-btn.selected   { background:rgba(108,143,255,0.1); border-color:rgba(108,143,255,0.6); color:#fff; }
+.quiz-opt-btn.correct    { background:rgba(92,214,176,0.12); border-color:rgba(92,214,176,0.7);  color:#5cd6b0 !important; }
+.quiz-opt-btn.wrong      { background:rgba(255,124,92,0.1);  border-color:rgba(255,124,92,0.5);  color:#ff7c5c !important; }
+.quiz-opt-btn:disabled   { cursor: default; }
+
 @media (max-width: 860px) {
   :root { --left-w: 200px; }
 }
 @media (max-width: 580px) {
   .left-col { display: none; }
+}
+
+/* ── Phase 1.5: Compact step strip + VARKy narrator ── */
+.step-strip {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.step-strip.is-hidden { display: none; }
+
+.step-bar-mini { display: flex; flex-shrink: 0; }
+.step-chev-mini {
+  background: var(--chev-blue);
+  color: #ffffff;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+  padding: 5px 20px 5px 24px;
+  margin-right: -12px;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.25s, transform 0.25s;
+  letter-spacing: 0.2px;
+}
+.step-chev-mini:first-child {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+  padding-left: 14px;
+}
+.step-chev-mini:last-child { margin-right: 0; }
+.step-chev-mini.is-done { background: var(--chev-blue-d); }
+.step-chev-mini.is-active {
+  background: var(--chev-green);
+  box-shadow: 0 2px 8px rgba(16,169,107,0.28);
+  transform: translateY(-1px);
+  z-index: 2;
+}
+.step-chev-mini .s-num {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  color: #ffffff;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  flex-shrink: 0;
+}
+.step-chev-mini.is-done .s-num { background: #ffffff; color: var(--chev-blue-d); font-size: 10px; }
+.step-chev-mini.is-active .s-num { background: #ffffff; color: var(--chev-green-d); }
+.step-chev-mini .s-cells { display: inline-flex; gap: 4px; margin-left: 4px; }
+.step-chev-mini .s-cell { font-size: 11px; opacity: 0.92; }
+
+.narrator-mini {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.narrator-mini .n-avatar {
+  font-size: 18px;
+  flex-shrink: 0;
+  animation: narrator-bobble 3s ease-in-out infinite;
+}
+@keyframes narrator-bobble {
+  0%,100% { transform: translateY(0); }
+  50%     { transform: translateY(-2px); }
+}
+.narrator-mini .n-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.narrator-mini .n-text strong { color: var(--accent-v); font-weight: 700; }
+
+.step-strip-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.18s;
+}
+.step-strip-close:hover { color: var(--accent-a); border-color: var(--accent-a); }
+
+.narrator-tts-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 24px; height: 24px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.narrator-tts-btn:hover { color: var(--accent-a); border-color: var(--accent-a); }
+.narrator-tts-btn.is-speaking {
+  color: var(--accent-a);
+  border-color: var(--accent-a);
+  background: rgba(255,124,92,0.10);
+  animation: tts-mini-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tts-mini-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,124,92,0.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(255,124,92,0); }
+}
+
+@media (max-width: 720px) {
+  .step-chev-mini .s-cells { display: none; }
+  .step-chev-mini { font-size: 10px; padding: 4px 16px 4px 20px; }
+  .step-chev-mini:first-child { padding-left: 12px; }
+  .narrator-mini { font-size: 11px; gap: 7px; }
+  .narrator-mini .n-avatar { font-size: 15px; }
 }
 </style>
 </head>
@@ -858,7 +1207,41 @@ body.col-resizing * { pointer-events: none !important; }
   <div class="topnav-sep"></div>
   <span class="topnav-title" id="nav-filename">ยังไม่ได้เลือกไฟล์</span>
   <div id="nav-vark-wrap"></div>
+  <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="สลับโหมดมืด/สว่าง">
+    <span id="theme-icon">🌙</span>
+  </button>
 </nav>
+
+<!-- ── Phase 1.5: Step strip + VARKy narrator ── -->
+<div class="step-strip" id="step-strip">
+  <div class="step-bar-mini" aria-label="ขั้นตอน 3 จาก 3">
+    <div class="step-chev-mini is-done" data-step="1">
+      <span class="s-num">✓</span>
+      <span>ทำแบบทดสอบ</span>
+    </div>
+    <div class="step-chev-mini is-done" data-step="2">
+      <span class="s-num">✓</span>
+      <span>ดูสไตล์ของคุณ</span>
+    </div>
+    <div class="step-chev-mini is-active" data-step="3">
+      <span class="s-num">3</span>
+      <span>เรียนแบบส่วนตัว</span>
+      <span class="s-cells">
+        <span class="s-cell" title="อัปโหลด PDF">📄</span>
+        <span class="s-cell" title="สร้างเนื้อหา">✨</span>
+        <span class="s-cell" title="ฝึกทำ">🎯</span>
+      </span>
+    </div>
+  </div>
+  <div class="narrator-mini">
+    <div class="n-avatar">🦉</div>
+    <div class="n-text" id="narrator-mini-text">เฮ้! ฉัน <strong>VARKy</strong> — อัปโหลด PDF ของคุณ แล้วกด Generate เพื่อเริ่มเรียน</div>
+    <button class="narrator-tts-btn" id="narrator-tts-btn" onclick="speakNarrator()" title="ฟังเสียง VARKy">
+      <span id="narrator-tts-icon">🔊</span>
+    </button>
+  </div>
+  <button class="step-strip-close" id="step-strip-close" title="ซ่อนแถบนี้" onclick="hideStepStrip()">×</button>
+</div>
 
 <div class="workspace">
 
@@ -904,7 +1287,7 @@ body.col-resizing * { pointer-events: none !important; }
 
     <div class="study-tabs">
       <button class="study-tab active" onclick="switchTab('guide', this)">📖 Study Guide</button>
-      <button class="study-tab" onclick="switchTab('summary', this)">✦ Summary</button>
+      <button class="study-tab" onclick="switchTab('quiz', this)">🧪 Quiz</button>
       <button class="study-tab" onclick="switchTab('videos', this)">▶ Videos</button>
       <div class="vark-legend" id="vark-legend" style="display:none;">
         <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-v)"></div><span>V</span></div>
@@ -943,13 +1326,75 @@ body.col-resizing * { pointer-events: none !important; }
         </div>
       </div>
 
-      <!-- Summary Tab -->
-      <div class="tab-panel" id="panel-summary">
-        <div class="empty-state" id="summary-empty">
-          <span class="es-icon">📋</span>
-          <p>Generate ก่อนเพื่อดู Summary</p>
+      <!-- Quiz Tab -->
+      <div class="tab-panel" id="panel-quiz">
+
+        <!-- Empty state -->
+        <div class="empty-state" id="quiz-empty">
+          <span class="es-icon">🧪</span>
+          <p>Generate เนื้อหาก่อน แล้วมา<br><strong>ทดสอบความเข้าใจ</strong>ที่นี่</p>
         </div>
-        <div class="summary-wrap" id="summary-wrap" style="display:none;"></div>
+
+        <!-- Config panel (shown after generate) -->
+        <div id="quiz-config" style="display:none; padding:20px 16px;">
+
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:14px;">⚙ ตั้งค่า Quiz</div>
+
+          <!-- Difficulty -->
+          <div style="margin-bottom:16px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">ระดับความยาก</div>
+            <div style="display:flex;gap:8px;">
+              <button class="quiz-diff-btn active-easy" id="diff-easy"   onclick="setDiff('easy')">
+                🟢 Easy<br><span style="font-size:10px;opacity:0.7;">พื้นฐาน / จำ</span>
+              </button>
+              <button class="quiz-diff-btn" id="diff-medium" onclick="setDiff('medium')">
+                🟡 Medium<br><span style="font-size:10px;opacity:0.7;">เข้าใจ / ประยุกต์</span>
+              </button>
+              <button class="quiz-diff-btn" id="diff-hard"   onclick="setDiff('hard')">
+                🔴 Hard<br><span style="font-size:10px;opacity:0.7;">วิเคราะห์ / debug</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Question count -->
+          <div style="margin-bottom:20px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">จำนวนคำถาม</div>
+            <div style="display:flex;gap:6px;">
+              <button id="qc-3"  onclick="setQCount(3)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">3</button>
+              <button id="qc-5"  onclick="setQCount(5)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">5</button>
+              <button id="qc-7"  onclick="setQCount(7)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">7</button>
+              <button id="qc-10" onclick="setQCount(10)" style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">10</button>
+            </div>
+          </div>
+
+          <!-- Start button -->
+          <button onclick="startQuiz()" id="btn-start-quiz"
+            style="width:100%;padding:11px;background:linear-gradient(135deg,var(--accent-r),#4ab89a);border:none;border-radius:9px;color:#fff;font-family:'Sarabun',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;letter-spacing:0.5px;">
+            ✦ เริ่ม Quiz
+          </button>
+        </div>
+
+        <!-- Loading -->
+        <div id="quiz-skeleton" style="display:none;padding:16px;">
+          <div class="skeleton wide" style="height:14px;margin-bottom:10px;"></div>
+          <div class="skeleton med"  style="height:12px;margin-bottom:8px;"></div>
+          <div class="skeleton wide" style="height:14px;margin-bottom:10px;margin-top:18px;"></div>
+          <div class="skeleton short" style="height:12px;margin-bottom:8px;"></div>
+        </div>
+
+        <!-- Questions -->
+        <div id="quiz-questions" style="display:none;"></div>
+
+        <!-- Result bar -->
+        <div id="quiz-result-bar" style="display:none;margin:16px;padding:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);text-align:center;">
+          <div id="quiz-score-text" style="font-size:24px;font-weight:800;color:var(--accent-r);margin-bottom:6px;"></div>
+          <div id="quiz-score-sub"  style="font-size:12px;color:var(--text-muted);margin-bottom:14px;"></div>
+          <button onclick="resetQuiz()"
+            style="padding:8px 22px;background:transparent;border:1.5px solid var(--border);color:var(--text-muted);font-family:'Sarabun',sans-serif;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;transition:all 0.2s;">
+            🔄 ทำใหม่
+          </button>
+        </div>
+
       </div>
 
       <!-- Videos Tab -->
@@ -977,16 +1422,16 @@ body.col-resizing * { pointer-events: none !important; }
 <script>
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'dark',
+  theme: 'base',
   themeVariables: {
-    background:       '#1c2030',
-    primaryColor:     '#6c8fff',
-    primaryTextColor: '#e8eaf2',
-    primaryBorderColor:'#2a2f45',
-    lineColor:        '#5cd6b0',
-    secondaryColor:   '#202436',
-    tertiaryColor:    '#161920',
-    edgeLabelBackground:'#202436',
+    background:       '#ffffff',
+    primaryColor:     '#eaf0ff',
+    primaryTextColor: '#15182a',
+    primaryBorderColor:'#4f6df0',
+    lineColor:        '#14b48a',
+    secondaryColor:   '#f5f7fc',
+    tertiaryColor:    '#fafbfd',
+    edgeLabelBackground:'#ffffff',
     fontSize:         '13px',
   },
   mindmap: { padding: 16 },
@@ -1002,11 +1447,22 @@ let activePdfIdx = -1;
 let currentPage  = 1;
 let totalPages   = 1;
 let pdfDoc       = null;
-const varkData   = JSON.parse(sessionStorage.getItem('__vark_current__') || 'null');
+// Prefer the just-navigated payload; fall back to localStorage so refresh / direct
+// navigation still shows the latest completed test (overwritten by every showResults).
+const varkData = JSON.parse(
+  sessionStorage.getItem('__vark_current__')
+  || localStorage.getItem('__vark_latest__')
+  || 'null'
+);
+sessionStorage.removeItem('__vark_current__');   // one-shot transfer key only
+
+// bfcache restore — re-load so varkData is fresh after back/forward navigation
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) location.reload();
+});
 let feedbackSessions = [];
 let currentSession   = null;
 let likedVideoIds    = new Set();
-let typhoonKey       = '';          // โหลดจาก /config
 const videoVarkCache = new Map();   // cache: videoId → ['V','K',…]
 
 const VARK_CFG = {
@@ -1016,36 +1472,37 @@ const VARK_CFG = {
   K: { label:'Kinesthetic', color:'#f5c842', emoji:'🤸',  icon:'⚡' },
 };
 
-// ─── FETCH CONFIG (typhoon key) ───────────────────────────────
-(async function loadConfig() {
-  try {
-    const res  = await fetch(`${API_BASE}/config`);
-    const cfg  = await res.json();
-    typhoonKey = cfg.typhoon_api_key || '';
-  } catch(e) {
-    console.warn('Config fetch failed:', e.message);
-  }
-})();
-
 // ─── INIT ─────────────────────────────────────────────────────
 (function init() {
   if (!varkData) return;
-  const scores   = varkData.vark_scores || {};
-  const dominant = varkData.dominant_style || 'R';
+  const scores = varkData.vark_scores || {};
+  // Phase 2: prefer `dominants` array; fall back to legacy single `dominant_style`
+  const dominants = (Array.isArray(varkData.dominants) && varkData.dominants.length)
+    ? varkData.dominants
+    : (varkData.dominant_style ? [varkData.dominant_style] : []);
 
-  // Build chips for all styles that have a score > 0, sorted by score desc
+  // ใช้ vark_percent ที่ averaged แล้วจาก quiz (ถ้ามี) — ถ้าไม่มีค่อย fallback คำนวณจาก raw
+  // เพื่อให้ chip ตรงกับเปอร์เซ็นต์ที่โชว์ในหน้า result (Phase 4 averaging across banks)
+  const percent = (varkData.vark_percent && typeof varkData.vark_percent === 'object')
+    ? varkData.vark_percent : null;
+  const totalScore = ['V','A','R','K'].reduce((s,k) => s + Number(scores[k] || 0), 0) || 100;
+
   const order = ['V','A','R','K']
-    .map(k => ({ k, score: Number(scores[k] || 0) }))
-    .sort((a, b) => b.score - a.score)
+    .map(k => ({
+      k,
+      score: Number(scores[k] || 0),
+      pct:   percent ? Number(percent[k] || 0) : ((Number(scores[k] || 0) / totalScore) * 100),
+    }))
+    .sort((a, b) => b.pct - a.pct || b.score - a.score)
     .filter(x => x.score > 0);
 
-  const chipsHtml = order.map(({ k, score }) => {
+  const chipsHtml = order.map(({ k, pct }) => {
     const cfg = VARK_CFG[k];
     const c   = cfg.color;
-    const pct = Math.round((score / (order.reduce((s,x)=>s+x.score,0)||100)) * 100);
-    const isDom = k === dominant;
+    const pctDisplay = Number.isInteger(pct) ? pct : Math.round(pct * 10) / 10;
+    const isDom = dominants.includes(k);
     return `<div class="topnav-chip" style="background:${c}${isDom ? '30' : '15'};border-color:${c}${isDom ? '80' : '40'};color:${c};${isDom ? 'font-weight:800;' : 'opacity:0.75;'}">
-      ${cfg.emoji} ${cfg.label.split('/')[0]} <span style="opacity:0.7">${pct}%</span>
+      ${cfg.emoji} ${cfg.label.split('/')[0]} <span style="opacity:0.7">${pctDisplay}%</span>${isDom && dominants.length > 1 ? ' <span style="opacity:0.6;font-size:9px;margin-left:2px;">★</span>' : ''}
     </div>`;
   }).join('');
 
@@ -1053,6 +1510,112 @@ const VARK_CFG = {
     `<div style="display:flex;gap:5px;align-items:center;flex-wrap:nowrap;">${chipsHtml}</div>`;
   document.getElementById('vark-legend').style.display = 'flex';
 })();
+
+// ─── Phase 1.5: Personalize VARKy narrator + dismiss ──────────
+(function initStepStrip() {
+  const strip = document.getElementById('step-strip');
+  if (!strip) return;
+  if (sessionStorage.getItem('__step_strip_hidden__') === '1') {
+    strip.classList.add('is-hidden');
+  }
+  const text = document.getElementById('narrator-mini-text');
+  if (text && varkData) {
+    const doms = (Array.isArray(varkData.dominants) && varkData.dominants.length)
+      ? varkData.dominants
+      : (varkData.dominant_style ? [varkData.dominant_style] : []);
+    // Phase 4: show "(ค่าเฉลี่ยจาก 2 ชุด)" suffix to match result page when 2 banks done
+    const banksDone = Number(varkData.banks_done || 1);
+    const accNote   = banksDone >= 2
+      ? ' <span style="opacity:0.75;font-size:0.9em;">(ค่าเฉลี่ยจาก 2 ชุด)</span>'
+      : '';
+    if (doms.length > 1) {
+      const names = doms.map(k => VARK_CFG[k] && VARK_CFG[k].label).filter(Boolean).join(' + ');
+      text.innerHTML = `สไตล์เด่นของคุณคือ <strong>${names}</strong> (สไตล์ผสม)${accNote} — อัปโหลด PDF แล้วกด Generate เพื่อสร้างสื่อตามสไตล์ของคุณ`;
+    } else if (doms.length === 1) {
+      const cfg = VARK_CFG[doms[0]];
+      if (cfg) text.innerHTML = `สไตล์เด่นของคุณคือ <strong>${cfg.label}</strong> ${cfg.emoji}${accNote} — อัปโหลด PDF แล้วกด Generate เพื่อสร้างสื่อที่ใช่`;
+    }
+  }
+})();
+
+function hideStepStrip() {
+  const strip = document.getElementById('step-strip');
+  if (!strip) return;
+  strip.classList.add('is-hidden');
+  sessionStorage.setItem('__step_strip_hidden__', '1');
+}
+
+// ─── Phase 3: VARKy narrator TTS (gTTS via /tts) ───────────────
+async function speakNarrator() {
+  const btn  = document.getElementById('narrator-tts-btn');
+  const text = document.getElementById('narrator-mini-text');
+  if (!text) return;
+
+  // Toggle: ถ้ากำลังพูดอยู่ → หยุด
+  if (window.__narratorAudio && !window.__narratorAudio.paused) {
+    window.__narratorAudio.pause();
+    const prev = window.__narratorAudio.src;
+    window.__narratorAudio.src = '';
+    window.__narratorAudio = null;
+    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    if (btn) btn.classList.remove('is-speaking');
+    return;
+  }
+
+  const clean = text.textContent.replace(/\s+/g, ' ').trim();
+  if (!clean) return;
+
+  if (btn) btn.classList.add('is-speaking');
+  try {
+    const resp = await fetch(`${API_BASE}/tts`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ text: clean, lang: 'th' }),
+    });
+    if (!resp.ok) throw new Error(`tts ${resp.status}`);
+    const blob  = await resp.blob();
+    const url   = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    window.__narratorAudio = audio;
+
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (window.__narratorAudio === audio) window.__narratorAudio = null;
+      if (btn) btn.classList.remove('is-speaking');
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (window.__narratorAudio === audio) window.__narratorAudio = null;
+      if (btn) btn.classList.remove('is-speaking');
+    };
+
+    await audio.play();
+  } catch (err) {
+    console.warn('[narrator-tts] gTTS error:', err);
+    if (btn) btn.classList.remove('is-speaking');
+    alert('เกิดข้อผิดพลาดในการสร้างเสียงพากย์');
+  }
+}
+
+// ─── Theme toggle (light / dark) ───────────────────────────────
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    html.removeAttribute('data-theme');
+    localStorage.setItem('__vark_theme__', 'light');
+  } else {
+    html.setAttribute('data-theme', 'dark');
+    localStorage.setItem('__vark_theme__', 'dark');
+  }
+  syncThemeButton();
+}
+function syncThemeButton() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.textContent = isDark ? '☀️' : '🌙';
+}
+syncThemeButton();
 
 // ─── PDF TABS ─────────────────────────────────────────────────
 async function handleSidebarFiles(fileList) {
@@ -1126,28 +1689,54 @@ function removePdf(idx, e) {
       document.getElementById('nav-filename').textContent    = 'ยังไม่ได้เลือกไฟล์';
       document.getElementById('btn-generate').disabled       = true;
       document.getElementById('page-info-strip').textContent = '';
+      const curBadge = document.getElementById('page-cur-badge');
+      if (curBadge) curBadge.style.display = 'none';
       document.getElementById('pdf-canvas-wrap')
-        .querySelectorAll('.pdf-page-canvas').forEach(c => c.remove());
+        .querySelectorAll('.pdf-page-wrap').forEach(c => c.remove());
+      pdfDoc = null;
+      _pdfRenderGen++;
     }
   } else if (activePdfIdx > idx) { activePdfIdx--; }
   renderTabList();
 }
 
 // ─── PDF RENDER (long strip — all pages) ─────────────────────
+// Generation token — every call to renderAllPages bumps it. In-flight
+// renders abort as soon as they notice they're stale, which prevents
+// duplicate pages when the user drags the column resizer (mousemove
+// fires renderPage many times per second, kicking off concurrent
+// renders that would otherwise interleave their appended canvases).
+let _pdfRenderGen = 0;
 async function renderAllPages(doc) {
-  const wrap = document.getElementById('pdf-canvas-wrap');
-  // clear old pages but keep viewer-empty
-  wrap.querySelectorAll('.pdf-page-canvas').forEach(c => c.remove());
+  const myGen = ++_pdfRenderGen;
+  const wrap  = document.getElementById('pdf-canvas-wrap');
+  Array.from(wrap.children).forEach(el => {
+    if (el.id !== 'viewer-empty') el.remove();
+  });
   document.getElementById('viewer-empty').style.display = 'none';
 
   const containerW = wrap.clientWidth - 16;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr   = window.devicePixelRatio || 1;
   const total = doc.numPages;
 
   document.getElementById('page-info-strip').textContent = `${total} หน้า`;
 
+  // Inject current-page badge into toolbar if not already there
+  if (!document.getElementById('page-cur-badge')) {
+    const strip = document.getElementById('page-info-strip');
+    const cb = document.createElement('span');
+    cb.id = 'page-cur-badge';
+    cb.className = 'page-cur-badge';
+    cb.innerHTML = 'หน้า <span id="page-cur-num">1</span>';
+    strip.insertAdjacentElement('beforebegin', cb);
+  }
+  document.getElementById('page-cur-badge').style.display = '';
+  document.getElementById('page-cur-num').textContent = '1';
+
   for (let p = 1; p <= total; p++) {
+    if (myGen !== _pdfRenderGen) return;
     const page   = await doc.getPage(p);
+    if (myGen !== _pdfRenderGen) return;
     const origVp = page.getViewport({ scale: 1 });
     const scale  = Math.min(containerW / origVp.width, 2.5);
     const vp     = page.getViewport({ scale: scale * dpr });
@@ -1158,10 +1747,55 @@ async function renderAllPages(doc) {
     canvas.height       = vp.height;
     canvas.style.width  = (vp.width  / dpr) + 'px';
     canvas.style.height = (vp.height / dpr) + 'px';
-    wrap.appendChild(canvas);
+
+    const pageWrap = document.createElement('div');
+    pageWrap.className = 'pdf-page-wrap';
+    pageWrap.dataset.page = p;
+    pageWrap.style.cssText = `position:relative;display:inline-block;max-width:100%;width:${vp.width/dpr}px;`;
+
+    const badge = document.createElement('div');
+    badge.className = 'pdf-page-badge';
+    badge.textContent = p;
+
+    pageWrap.appendChild(badge);
+    pageWrap.appendChild(canvas);
+    if (myGen !== _pdfRenderGen) return;
+    wrap.appendChild(pageWrap);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
   }
+  if (myGen !== _pdfRenderGen) return;
+  setupPageScrollTracker(wrap);
+}
+
+// ─── PAGE SCROLL TRACKER ──────────────────────────────────────
+let _scrollTracker = null;
+function setupPageScrollTracker(wrap) {
+  if (_scrollTracker) wrap.removeEventListener('scroll', _scrollTracker);
+  _scrollTracker = () => {
+    const pages = wrap.querySelectorAll('.pdf-page-wrap');
+    if (!pages.length) return;
+    const wrapTop = wrap.getBoundingClientRect().top;
+    let best = 1;
+    for (const pw of pages) {
+      if (pw.getBoundingClientRect().top - wrapTop <= 10) best = Number(pw.dataset.page);
+    }
+    const el = document.getElementById('page-cur-num');
+    if (el) el.textContent = best;
+  };
+  wrap.addEventListener('scroll', _scrollTracker, { passive: true });
+}
+
+// ─── SCROLL TO PAGE (from video chip) ─────────────────────────
+function scrollToPdfPage(pageNum) {
+  const wrap   = document.getElementById('pdf-canvas-wrap');
+  const target = wrap.querySelector(`.pdf-page-wrap[data-page="${pageNum}"]`);
+  if (!target) { showToast(`⚠️ ไม่มีหน้า ${pageNum} ใน PDF`); return; }
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  target.style.outline = '2px solid var(--accent-v)';
+  target.style.outlineOffset = '2px';
+  setTimeout(() => { target.style.outline = ''; target.style.outlineOffset = ''; }, 1800);
+  showToast(`📄 เลื่อนไปหน้า ${pageNum}`);
 }
 
 // keep stub so resize-handle code doesn't break
@@ -1235,16 +1869,49 @@ async function generate() {
       liked: false,
     };
 
-    renderVARKGuide(data.learning_material, varkScores, data.images || []);
-    renderSummary(data.learning_material, varkScores);
-    renderVideos(data.videos || [], varkScores);
-    document.querySelector('.study-tab').click();
+    // ── ปล่อย UI ทันที — re-enable ปุ่ม + ซ่อน spinner ก่อน render ──
+    document.getElementById('guide-skeleton').style.display = 'none';
+    btn.disabled = false;
+    spinner.style.display = 'none';
+
+    // ── Defer heavy synchronous render ให้ browser repaint ก่อน ──
+    const _mat    = data.learning_material || '';
+    console.log('[DEBUG] data keys:', Object.keys(data));
+    console.log('[DEBUG] data.learning_material type:', typeof data.learning_material, 'length:', (data.learning_material||'').length);
+    const _videos = data.videos   || [];
+
+    // prepareQuiz เบามาก รันได้เลย
+    prepareQuiz(_mat, varkScores);
+
+    // renderVARKGuide — defer + try/catch กัน silent crash
+    setTimeout(() => {
+      try {
+        console.log('[DEBUG] learning_material length:', (_mat||'').length);
+        console.log('[DEBUG] learning_material preview:', (_mat||'').slice(0, 300));
+        console.log('[DEBUG] varkScores:', JSON.stringify(varkScores));
+        renderVARKGuide(_mat, varkScores);
+        document.querySelector('.study-tab').click();
+      } catch(e) {
+        console.error('renderVARKGuide error:', e);
+        // TEMP DEBUG: แสดง error ให้ user เห็น
+        alert('renderVARKGuide ERROR: ' + e.message);
+        // แสดง error ให้ user เห็นแทน skeleton ค้าง
+        const el = document.getElementById('guide-vark-sections');
+        el.innerHTML = '<div style="padding:20px;color:var(--accent-a);">⚠️ เกิดข้อผิดพลาดในการแสดงเนื้อหา<br><small>' + (e.message||e) + '</small></div>';
+        el.style.display = 'block';
+      }
+    }, 0);
+
+    // renderVideos — delay 50ms + try/catch
+    setTimeout(() => {
+      try { renderVideos(_videos, varkScores, _mat); }
+      catch(e) { console.error('renderVideos error:', e); }
+    }, 50);
 
   } catch(err) {
     console.error(err);
     showToast(`❌ ${err.message || 'เกิดข้อผิดพลาด'}`);
     document.getElementById('guide-empty').style.display = '';
-  } finally {
     document.getElementById('guide-skeleton').style.display = 'none';
     btn.disabled = false;
     spinner.style.display = 'none';
@@ -1252,9 +1919,41 @@ async function generate() {
 }
 
 // ─── VARK-PROPORTIONAL GUIDE ──────────────────────────────────
-function renderVARKGuide(md, varkScores, images = []) {
+function renderVARKGuide(md, varkScores) {
   const el = document.getElementById('guide-vark-sections');
   el.innerHTML = '';
+
+  console.log('[renderVARKGuide] input md length:', (md||'').length);
+  if (!md || md.trim().length === 0) {
+    el.innerHTML = '<div style="padding:20px;color:var(--accent-a);">⚠️ ไม่มีเนื้อหาจาก API (learning_material ว่างเปล่า)</div>';
+    el.style.display = 'block';
+    return;
+  }
+
+  // ── กรองส่วน "ภาพประกอบ" / visual placeholder ที่ AI generate มาออก ──
+  // 1) ตัด block header ที่สั่ง "แทรก/ใส่" ภาพ (placeholder) ไปจนถึง header ถัดไป
+  //    ⚠️ ต้องแม่นยำ — ห้ามกัดคำเช่น "แผนภาพสรุป" หรือ "Visual Overview"
+  const IMAGE_HDR = /^#{1,3}\s*(ภาพประกอบ|แทรกรูป|แทรกภาพ|insert\s*image|image\s*placeholder)/i;
+  // 2) ตัด plain-text placeholder — แต่ห้ามตัด markdown image จริง ![alt](url)
+  //    และห้ามตัด mermaid code fence
+  const IMAGE_LINE = /(ภาพประกอบ:|ภาพที่\s*\d|รูปที่\s*\d|แทรกรูป|\[image\]|\[รูป\]|insert.?image|placeholder.?image)/i;
+
+  const filteredLines = [];
+  let skipBlock = false;
+  for (const line of md.split('\n')) {
+    if (/^#{1,3}\s/.test(line)) {
+      skipBlock = IMAGE_HDR.test(line);
+    }
+    // ยังคง: markdown image จริง ![alt](url) และ mermaid fence
+    const isRealImage  = /^!\[[^\]]*\]\(https?:\/\//.test(line.trim());
+    const isMermaidFence = /^```/.test(line.trim());
+    if (!skipBlock && (!IMAGE_LINE.test(line) || isRealImage || isMermaidFence)) {
+      filteredLines.push(line);
+    }
+  }
+  const cleanMd = filteredLines.join('\n');
+  console.log('[renderVARKGuide] original lines:', md.split('\n').length, '→ after filter:', filteredLines.length);
+  console.log('[renderVARKGuide] cleanMd preview:', cleanMd.slice(0, 300));
 
   // Sort styles by score, highest first
   const order = ['V','A','R','K']
@@ -1263,7 +1962,7 @@ function renderVARKGuide(md, varkScores, images = []) {
     .filter(x => x.score > 0);
 
   const totalScore = order.reduce((s, x) => s + x.score, 0) || 100;
-  const lines      = md.split('\n');
+  const lines      = cleanMd.split('\n');
   const totalLines = lines.length;
   let li = 0;
 
@@ -1276,30 +1975,6 @@ function renderVARKGuide(md, varkScores, images = []) {
 
     const sec = document.createElement('div');
     sec.className = `vark-section s-${k}`;
-
-    // Visual section: inject image gallery if images exist
-    if (k === 'V' && images.length > 0) {
-      const galleryWrap = document.createElement('div');
-      galleryWrap.innerHTML = `<div class="visual-gallery-header">🖼️ Visual References</div>`;
-      const grid = document.createElement('div');
-      grid.className = 'visual-gallery';
-      images.forEach(img => {
-        const card = document.createElement('div');
-        card.className = 'visual-img-card';
-        card.title = img.alt_description || img.title || img.query;
-        card.innerHTML = `
-          <img src="${img.url}"
-               alt="${img.alt_description || img.title}"
-               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
-               loading="lazy">
-          <div class="visual-img-alt" style="display:none;">${img.alt_description || img.title || '—'}</div>
-          <div class="visual-img-source">${img.source || ''}</div>`;
-        card.addEventListener('click', () => window.open(img.url, '_blank'));
-        grid.appendChild(card);
-      });
-      galleryWrap.appendChild(grid);
-      sec.appendChild(galleryWrap);
-    }
 
     const content = document.createElement('div');
     content.className = 'guide-content';
@@ -1318,11 +1993,41 @@ function renderVARKGuide(md, varkScores, images = []) {
 // ─── MARKDOWN PARSER ──────────────────────────────────────────────
 // inline formatting only
 function inlineMD(s) {
-  return s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Save images/links as placeholders BEFORE HTML-escaping so their URLs survive.
+  const placeholders = [];
+  function savePH(html) {
+    const token = '\x00PH' + placeholders.length + '\x00';
+    placeholders.push(html);
+    return token;
+  }
+
+  // 0) Preserve safe literal HTML tags that AI outputs (e.g. <br>) before escaping
+  s = s.replace(/<br\s*\/?>/gi, function() { return savePH('<br>'); });
+  s = s.replace(/<\/?(?:b|i|strong|em|u|del|mark|small|sup|sub)>/gi, function(m) { return savePH(m); });
+
+  // 1) Inline image: ![alt](url) → placeholder
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, url) {
+    return savePH('<img src="' + url + '" alt="' + alt.replace(/"/g, '&quot;') + '" style="max-width:100%;border-radius:6px;margin:4px 0;display:block;" loading="lazy">');
+  });
+  // 2) Inline link: [text](url) → placeholder
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, text, url) {
+    return savePH('<a href="' + url + '" target="_blank" rel="noopener" style="color:var(--accent-v);">' + text + '</a>');
+  });
+
+  // 3) Escape remaining HTML chars
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // 4) Inline formatting
+  s = s
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g,     '<em>$1</em>')
     .replace(/`([^`]+)`/g,     '<code>$1</code>');
+
+  // 5) Restore placeholders
+  placeholders.forEach(function(html, i) {
+    s = s.split('\x00PH' + i + '\x00').join(html);
+  });
+  return s;
 }
 
 function parseMD(md) {
@@ -1339,15 +2044,17 @@ function parseMD(md) {
       var code = [];
       i++;
       while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
-      // ── Mermaid diagrams: render instead of showing raw code ──
+      var langLower = lang.toLowerCase();
+      // ── Mermaid: สร้าง mermaid-wrap ให้ renderMermaidBlocks() จับได้ ──
       if (lang === 'mermaid') {
-        var mermaidId = 'mermaid-' + Math.random().toString(36).slice(2, 8);
-        var mermaidSrc = code.join('\n');
-        out.push(
-          '<div class="mermaid-wrap" data-src="' + mermaidSrc.replace(/"/g,'&quot;') + '" id="' + mermaidId + '">' +
-          '<div class="mermaid-loading">⟳ กำลัง render แผนผัง...</div>' +
-          '</div>'
-        );
+        const uid = 'mm-' + Math.random().toString(36).slice(2, 8);
+        const raw = code.join('\n');
+        out.push('<div class="mermaid-wrap" id="' + uid + '" data-src="' + raw.replace(/"/g, '&quot;') + '"></div>');
+      } else if (lang === 'เฉลย' || langLower === 'answer' || langLower === 'solution' || langLower === 'spoiler' || langLower === 'ans') {
+        // Hidden answer — collapsible <details> with reveal button.
+        // Inner content is markdown so it can include lists/code/formulas.
+        var innerHTML = parseMD(code.join('\n'));
+        out.push('<details class="answer-block"><summary><span class="answer-summary-text">💡 ดูเฉลย</span></summary><div class="answer-body">' + innerHTML + '</div></details>');
       } else {
         out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
       }
@@ -1379,10 +2086,33 @@ function parseMD(md) {
       continue;
     }
 
+    // Block image: line starts with ![ — handle ALL cases here so none leak into paragraph
+    if (/^!\[/.test(raw)) {
+      var imgUrlMatch = raw.match(/\]\(([^)]+)\)/);
+      var imgUrl = imgUrlMatch ? imgUrlMatch[1].trim() : '';
+      // แสดงเฉพาะ URL จริง (http/https หรือ /)
+      // ไม่มี URL จริง → ถือเป็น AI placeholder → ทิ้งเลย ไม่ render อะไร
+      if (imgUrl && /^https?:\/\/|^\//.test(imgUrl)) {
+        out.push('<p>' + inlineMD(raw) + '</p>');
+      }
+      i++; continue;
+    }
+
     // Headings
+    if (/^#### /.test(raw)) { out.push('<h4>' + inlineMD(raw.slice(5)) + '</h4>'); i++; continue; }
     if (/^### /.test(raw)) { out.push('<h3>' + inlineMD(raw.slice(4)) + '</h3>'); i++; continue; }
     if (/^## /.test(raw))  { out.push('<h2>' + inlineMD(raw.slice(3)) + '</h2>'); i++; continue; }
     if (/^# /.test(raw))   { out.push('<h1>' + inlineMD(raw.slice(2)) + '</h1>'); i++; continue; }
+
+    // Promote a bold-only line to <h4>. The model frequently emits section
+    // titles like "**กิจกรรมที่ 1: ...**" on their own line instead of using
+    // markdown heading syntax, so they render with no hierarchy. Match only
+    // when the entire line is one **...** span — a labelled paragraph
+    // ("**Tip:** rest of sentence") still renders as a paragraph.
+    {
+      var bm = raw.match(/^\*\*([^*\n][^*\n]*)\*\*\s*:?\s*$/);
+      if (bm) { out.push('<h4>' + inlineMD(bm[1]) + '</h4>'); i++; continue; }
+    }
 
     // HR
     if (/^---+$/.test(raw.trim())) { out.push('<hr>'); i++; continue; }
@@ -1431,48 +2161,232 @@ function parseMD(md) {
   return out.join('\n');
 }
 
-// ─── SUMMARY ──────────────────────────────────────────────────
-function renderSummary(md, varkScores) {
-  const wrap  = document.getElementById('summary-wrap');
-  const emEl  = document.getElementById('summary-empty');
-  wrap.innerHTML = '';
+// ─── QUIZ ──────────────────────────────────────────────────────
+let _quizMd    = '';
+let _quizVark  = {};
+let _quizDiff  = 'easy';
+let _quizCount = 5;
+let _quizData  = null;
+let _quizAnswers = {};
 
-  const plain  = md.replace(/[#*`>|-]/g, '').replace(/\n+/g, ' ').trim();
-  const words  = plain.split(/\s+/);
-  const order  = ['V','A','R','K']
-    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
-    .sort((a, b) => b.score - a.score)
-    .filter(x => x.score > 0);
-  const totalScore  = order.reduce((s, x) => s + x.score, 0) || 100;
-  const LIMIT = Math.min(words.length, 120);
-  let wi = 0;
+const DIFF_CFG = {
+  easy:   { label:'Easy',   emoji:'🟢', mix:'100% ความจำ / ความเข้าใจพื้นฐาน (Bloom L1-L2)', btn:'active-easy'   },
+  medium: { label:'Medium', emoji:'🟡', mix:'50% เข้าใจ + 50% ประยุกต์ใช้ (Bloom L2-L3)',    btn:'active-medium' },
+  hard:   { label:'Hard',   emoji:'🔴', mix:'30% ประยุกต์ + 70% วิเคราะห์ / debug (Bloom L4-L6)', btn:'active-hard' },
+};
 
-  order.forEach(({ k, score }, i) => {
-    const cfg   = VARK_CFG[k];
-    const pct   = Math.round((score / totalScore) * 100);
-    const wc    = i < order.length - 1
-      ? Math.round((score / totalScore) * LIMIT)
-      : LIMIT - wi;
-    const snip  = words.slice(wi, wi + Math.max(wc, 5)).join(' ');
-    wi += Math.max(wc, 5);
+function prepareQuiz(md, varkScores) {
+  _quizMd      = md;
+  _quizVark    = varkScores;
+  _quizData    = null;
+  _quizAnswers = {};
+  _quizDiff    = 'easy';
+  _quizCount   = 5;
 
-    const kv = document.createElement('div');
-    kv.className = 'summary-kv';
-    kv.innerHTML = `
-      <div class="summary-kv-icon">${cfg.icon}</div>
-      <div class="summary-kv-body">
-        <div class="summary-kv-label" style="color:${cfg.color};">${cfg.label} (${pct}%)</div>
-        <div class="summary-kv-text">${snip}…</div>
-      </div>`;
-    wrap.appendChild(kv);
+  // Reset UI
+  document.getElementById('quiz-empty').style.display      = 'none';
+  document.getElementById('quiz-config').style.display     = '';
+  document.getElementById('quiz-questions').style.display  = 'none';
+  document.getElementById('quiz-result-bar').style.display = 'none';
+
+  setDiff('easy');
+  setQCount(5);
+}
+
+function setDiff(d) {
+  _quizDiff = d;
+  ['easy','medium','hard'].forEach(k => {
+    const btn = document.getElementById(`diff-${k}`);
+    if (!btn) return;
+    btn.className = 'quiz-diff-btn' + (k === d ? ` ${DIFF_CFG[k].btn}` : '');
+  });
+}
+
+function setQCount(n) {
+  _quizCount = n;
+  [3,5,7,10].forEach(k => {
+    const btn = document.getElementById(`qc-${k}`);
+    if (!btn) return;
+    const active = k === n;
+    btn.style.background   = active ? 'rgba(92,214,176,0.12)' : 'var(--card)';
+    btn.style.borderColor  = active ? 'rgba(92,214,176,0.6)'  : 'var(--border)';
+    btn.style.color        = active ? '#5cd6b0'               : 'var(--text-muted)';
+  });
+}
+
+async function startQuiz() {
+  _quizAnswers = {};
+
+  document.getElementById('quiz-config').style.display    = 'none';
+  document.getElementById('quiz-skeleton').style.display  = 'block';
+  document.getElementById('quiz-questions').style.display = 'none';
+  document.getElementById('quiz-result-bar').style.display= 'none';
+
+  try {
+    const res = await fetch(`${API_BASE}/quiz`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        learning_material: _quizMd,
+        vark_style:        _quizVark,
+        difficulty:        _quizDiff,
+        count:             _quizCount,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    _quizData = Array.isArray(data.questions) ? data.questions : [];
+    if (_quizData.length === 0) throw new Error('Empty quiz array');
+
+    renderQuizQuestions(_quizData);
+
+  } catch(e) {
+    console.error('Quiz generation error:', e);
+    showToast(`❌ สร้าง Quiz ไม่สำเร็จ: ${e.message}`);
+    document.getElementById('quiz-config').style.display = '';
+  } finally {
+    document.getElementById('quiz-skeleton').style.display = 'none';
+  }
+}
+
+const VARK_Q_COLOR = { V:'#6c8fff', A:'#ff7c5c', R:'#5cd6b0', K:'#f5c842' };
+const DIFF_COLOR   = { easy:'#5cd6b0', medium:'#f5c842', hard:'#ff7c5c' };
+
+function renderQuizQuestions(questions) {
+  const container = document.getElementById('quiz-questions');
+  container.innerHTML = '';
+
+  questions.forEach((q, qi) => {
+    const vc   = VARK_Q_COLOR[q.vark]  || '#7a80a0';
+    const dc   = DIFF_COLOR[q.diff]    || '#7a80a0';
+    const card = document.createElement('div');
+    card.id = `qcard-${qi}`;
+    card.style.cssText = `margin:12px 16px;padding:15px 15px;background:var(--card);
+      border:1.5px solid var(--border);border-radius:var(--radius);transition:border-color 0.25s;`;
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-top:3px;flex-shrink:0;">Q${qi+1}</span>
+        <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;line-height:1.6;">${q.q}</span>
+      </div>
+      <div id="opts-${qi}">
+        ${['A','B','C','D'].map(k => `
+          <button class="quiz-opt-btn" id="opt-${qi}-${k}" onclick="selectAnswer(${qi},'${k}')">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+              color:var(--text-dim);margin-right:8px;">${k}</span>${q.options[k]}
+          </button>`).join('')}
+      </div>
+      <div id="exp-${qi}" style="display:none;margin-top:9px;padding:9px 12px;
+        border-radius:7px;border-left:3px solid;font-size:12px;color:var(--text-muted);
+        line-height:1.65;background:#f5f7fc;"></div>`;
+
+    container.appendChild(card);
   });
 
-  emEl.style.display  = 'none';
-  wrap.style.display  = 'flex';
+  // Submit button
+  const foot = document.createElement('div');
+  foot.style.cssText = 'padding:12px 16px 20px;text-align:center;';
+  foot.innerHTML = `
+    <button id="btn-submit-quiz" onclick="submitQuiz()" disabled
+      style="padding:10px 32px;background:linear-gradient(135deg,var(--accent-v),#a78bff);
+      border:none;border-radius:9px;color:#fff;font-family:'Sarabun',sans-serif;
+      font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;opacity:0.4;">
+      ✓ ส่งคำตอบ
+    </button>`;
+  container.appendChild(foot);
+
+  container.style.display = 'block';
+}
+
+function selectAnswer(qi, key) {
+  // ถ้า submit ไปแล้วห้ามเปลี่ยน
+  if (document.getElementById('btn-submit-quiz')?.style.display === 'none') return;
+
+  const prev = _quizAnswers[qi];
+  _quizAnswers[qi] = key;
+
+  // อัปเดต style ทุกปุ่มในข้อนี้
+  ['A','B','C','D'].forEach(k => {
+    const btn = document.getElementById(`opt-${qi}-${k}`);
+    if (!btn) return;
+    btn.classList.toggle('selected', k === key);
+  });
+
+  // Enable submit เมื่อตอบครบทุกข้อ (ไม่ lock ปุ่ม — ยังเปลี่ยนได้)
+  const answered = Object.keys(_quizAnswers).length;
+  const sb = document.getElementById('btn-submit-quiz');
+  if (sb && answered === _quizData.length) {
+    sb.disabled = false;
+    sb.style.opacity = '1';
+  }
+}
+
+function submitQuiz() {
+  if (!_quizData) return;
+
+  // ล็อกปุ่มทั้งหมดทันทีก่อน grade
+  _quizData.forEach((q, qi) => {
+    ['A','B','C','D'].forEach(k => {
+      const btn = document.getElementById(`opt-${qi}-${k}`);
+      if (btn) btn.disabled = true;
+    });
+  });
+
+  let correct = 0;
+
+  _quizData.forEach((q, qi) => {
+    const chosen  = _quizAnswers[qi];
+    const isRight = chosen === q.answer;
+    if (isRight) correct++;
+
+    const card = document.getElementById(`qcard-${qi}`);
+    if (card) card.style.borderColor = isRight
+      ? 'rgba(92,214,176,0.55)' : 'rgba(255,124,92,0.45)';
+
+    ['A','B','C','D'].forEach(k => {
+      const btn = document.getElementById(`opt-${qi}-${k}`);
+      if (!btn) return;
+      btn.classList.remove('selected');
+      if (k === q.answer) btn.classList.add('correct');
+      else if (k === chosen) btn.classList.add('wrong');
+    });
+
+    const expEl = document.getElementById(`exp-${qi}`);
+    if (expEl) {
+      expEl.style.display        = 'block';
+      expEl.style.borderLeftColor = isRight ? '#5cd6b0' : '#ff7c5c';
+      expEl.innerHTML = `${isRight ? '✅' : `❌ คำตอบที่ถูก: <strong>${q.answer}</strong>`} — ${q.explanation || ''}`;
+    }
+  });
+
+  const sb = document.getElementById('btn-submit-quiz');
+  if (sb) sb.style.display = 'none';
+
+  const pct   = Math.round((correct / _quizData.length) * 100);
+  const grade = pct >= 80 ? '🎉 ยอดเยี่ยม!' : pct >= 60 ? '👍 ผ่าน!' : '📚 ลองอีกครั้ง';
+  document.getElementById('quiz-score-text').textContent = `${correct} / ${_quizData.length} — ${pct}%  ${grade}`;
+  document.getElementById('quiz-score-sub').textContent  =
+    `ระดับ: ${DIFF_CFG[_quizDiff].emoji} ${DIFF_CFG[_quizDiff].label}  •  VARK: ${(Object.entries(_quizVark).filter(([k])=>['V','A','R','K'].includes(k)).sort((a,b)=>b[1]-a[1])[0]||['?'])[0]} dominant`;
+
+  const rb = document.getElementById('quiz-result-bar');
+  rb.style.display = 'block';
+  rb.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function resetQuiz() {
+  _quizAnswers = {};
+  _quizData    = null;
+  document.getElementById('quiz-questions').style.display   = 'none';
+  document.getElementById('quiz-result-bar').style.display  = 'none';
+  document.getElementById('quiz-config').style.display      = '';
+  setDiff(_quizDiff);
+  setQCount(_quizCount);
 }
 
 // ─── VIDEOS ───────────────────────────────────────────────────
-function renderVideos(videos, varkScores) {
+function renderVideos(videos, varkScores, learningMaterial) {
   const grid  = document.getElementById('yt-grid');
   const empty = document.getElementById('videos-empty');
   const tp    = document.getElementById('transcribe-panel');
@@ -1484,8 +2398,9 @@ function renderVideos(videos, varkScores) {
     return;
   }
 
-  // ── Cap at 4 videos, prioritise by VARK dominant match ──────
-  const dominant = varkScores.dominant || 'R';
+  // ── Cap at 10 videos, prioritise by VARK dominant match ──────
+  const dominant = (varkScores && varkScores.dominant) || 'R';
+  const cfg = VARK_CFG[dominant] || VARK_CFG['R'];
   const VARK_FORMAT_HINT = {
     V: ['animation','diagram','chart','visual','infographic','slides'],
     A: ['lecture','talk','podcast','explained','discussion','interview'],
@@ -1493,45 +2408,29 @@ function renderVideos(videos, varkScores) {
     K: ['hands-on','demo','practice','build','project','exercise'],
   };
   const hints = VARK_FORMAT_HINT[dominant] || [];
-
   function matchScore(v) {
-    const haystack = (v.title + ' ' + (v.channel || '')).toLowerCase();
-    return hints.reduce((s, h) => s + (haystack.includes(h) ? 1 : 0), 0);
+    const h = (v.title + ' ' + (v.channel || '')).toLowerCase();
+    return hints.reduce((s, k) => s + (h.includes(k) ? 1 : 0), 0);
   }
-
-  const capped = videos
-    .slice()                                            // don't mutate original
-    .sort((a, b) => matchScore(b) - matchScore(a))     // best match first
-    .slice(0, 4);                                       // max 4
+  const capped = videos.slice().sort((a,b)=>matchScore(b)-matchScore(a)).slice(0,10);
 
   empty.style.display = 'none';
   tp.style.display    = 'block';
   grid.innerHTML      = '';
   grid.style.display  = 'flex';
 
-  // Section header showing how many / why
-  const cfg = VARK_CFG[dominant];
   const headerDiv = document.createElement('div');
-  headerDiv.style.cssText = `
-    display:flex; align-items:center; gap:8px; margin-bottom:4px;
-    font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700;
-    letter-spacing:1px; text-transform:uppercase;
-  `;
-  headerDiv.innerHTML = `
-    <span style="color:${cfg.color};">${cfg.emoji} ${cfg.label} — วิดีโอแนะนำ</span>
-    <span style="color:var(--text-dim); font-weight:400;">${capped.length} รายการ</span>
-  `;
+  headerDiv.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:4px;font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;';
+  headerDiv.innerHTML = `<span style="color:${cfg.color};">${cfg.emoji} ${cfg.label} — วิดีโอแนะนำ</span><span style="color:var(--text-dim);font-weight:400;">${capped.length} รายการ</span>`;
   grid.appendChild(headerDiv);
 
-  // Build sorted VARK order + weight description for Typhoon prompt
   const order = ['V','A','R','K']
-    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
-    .sort((a, b) => b.score - a.score)
-    .filter(x => x.score > 0);
-  const totalScore    = order.reduce((s, x) => s + x.score, 0) || 100;
-  const varkWeightDesc = order.map(({ k, score }) => {
-    const pct  = Math.round((score / totalScore) * 100);
-    const name = { V:'Visual', A:'Aural', R:'Read/Write', K:'Kinesthetic' }[k];
+    .map(k => ({ k, score: Number((varkScores && varkScores[k]) || 0) }))
+    .sort((a,b) => b.score - a.score).filter(x => x.score > 0);
+  const totalScore = order.reduce((s,x) => s+x.score, 0) || 100;
+  const varkWeightDesc = order.map(({k,score}) => {
+    const pct  = Math.round((score/totalScore)*100);
+    const name = {V:'Visual',A:'Aural',R:'Read/Write',K:'Kinesthetic'}[k];
     return `${k}=${pct}% (${name})`;
   }).join(', ');
 
@@ -1542,43 +2441,35 @@ function renderVideos(videos, varkScores) {
     if (vid) card.dataset.vid = vid;
 
     if (v.is_search_link) {
-      // ── Search-link card (no API key) ──
       card.innerHTML = `
-        <div style="width:120px;min-width:120px;display:flex;align-items:center;justify-content:center;background:var(--surface);flex-shrink:0;">
-          <span style="font-size:22px">🔍</span>
-        </div>
-        <div class="yt-footer" style="flex:1;">
-          <div class="yt-info">
-            <div class="yt-title">${v.title}</div>
-            <div class="yt-channel" style="color:var(--accent-v);margin-top:3px;">คลิกเพื่อค้นหาใน YouTube →</div>
-          </div>
-        </div>`;
+        <div style="width:120px;min-width:120px;display:flex;align-items:center;justify-content:center;background:var(--surface);flex-shrink:0;"><span style="font-size:22px">🔍</span></div>
+        <div class="yt-footer" style="flex:1;"><div class="yt-info">
+          <div class="yt-title">${v.title}</div>
+          <div class="yt-channel" style="color:var(--accent-v);margin-top:3px;">คลิกเพื่อค้นหาใน YouTube →</div>
+        </div></div>`;
       card.style.cursor = 'pointer';
       card.addEventListener('click', () => window.open(v.url, '_blank'));
       grid.appendChild(card);
       return;
     }
 
-    // Render card with shimmer skeleton tags immediately
     card.innerHTML = `
       <img class="yt-thumb" src="${v.thumbnail}" alt="${v.title}" loading="lazy">
-      <div class="yt-embed-wrap">
-        <iframe src="${v.embed_url}?autoplay=0" allowfullscreen allow="autoplay"></iframe>
-      </div>
+      <div class="yt-embed-wrap"><iframe data-src="${v.embed_url}?autoplay=1" allowfullscreen allow="autoplay; encrypted-media"></iframe></div>
       <div class="yt-footer">
         <div class="yt-info">
           <div class="yt-vark-tags" id="vtags-${vid}">
-            <span class="yt-tag-skel"></span>
-            <span class="yt-tag-skel"></span>
-            <span class="yt-tag-skel"></span>
-            <span class="yt-tag-skel"></span>
+            <span class="yt-tag-skel"></span><span class="yt-tag-skel"></span>
+            <span class="yt-tag-skel"></span><span class="yt-tag-skel"></span>
           </div>
           <div class="yt-title">${v.title}</div>
           <div class="yt-channel">${v.channel}</div>
           <div class="yt-subtopics" id="subs-${vid}">
-            <span class="yt-subtopic-skel"></span>
-            <span class="yt-subtopic-skel"></span>
-            <span class="yt-subtopic-skel"></span>
+            <span class="yt-subtopic-skel"></span><span class="yt-subtopic-skel"></span><span class="yt-subtopic-skel"></span>
+          </div>
+          <div class="yt-pages-row" id="pages-${vid}">
+            <span class="yt-pages-label">PDF:</span>
+            <span class="yt-pages-skel"></span>
           </div>
         </div>
         <button class="btn-yt-like" data-vid="${vid}" onclick="toggleVideoLike(this,'${vid}')">👍 Like</button>
@@ -1586,39 +2477,60 @@ function renderVideos(videos, varkScores) {
     `;
 
     card.querySelector('.yt-thumb').addEventListener('click', () => {
-      document.querySelectorAll('.yt-card').forEach(c => c.classList.remove('playing'));
+      document.querySelectorAll('.yt-card.playing').forEach(c => {
+        c.classList.remove('playing');
+        const fi = c.querySelector('iframe');
+        if (fi) fi.src = '';
+      });
       card.classList.add('playing');
+      const iframe = card.querySelector('iframe');
+      if (iframe && iframe.dataset.src) iframe.src = iframe.dataset.src;
     });
-
     grid.appendChild(card);
 
-    // Stagger AI calls — 350 ms apart to avoid rate-limit
     setTimeout(() => {
-      analyzeVideoVark(v, varkWeightDesc, order).then(result => {
-        const tagsEl = document.getElementById(`vtags-${vid}`);
-        const subsEl = document.getElementById(`subs-${vid}`);
+      analyzeVideoVark(v, varkWeightDesc, order, learningMaterial).then(result => {
+        const tagsEl  = document.getElementById(`vtags-${vid}`);
+        const subsEl  = document.getElementById(`subs-${vid}`);
+        const pagesEl = document.getElementById(`pages-${vid}`);
 
-        if (tagsEl) {
-          tagsEl.innerHTML = result.vark.map(k => {
-            const cfg = VARK_CFG[k];
-            return `<span class="yt-vark-tag"
-              style="color:${cfg.color};border-color:${cfg.color}55;background:${cfg.color}15;">
-              ${cfg.emoji} ${cfg.label.split('/')[0]}
-            </span>`;
-          }).join('');
-        }
-        if (subsEl) {
-          subsEl.innerHTML = (result.subtopics || []).length
-            ? result.subtopics.map(s => `<span class="yt-subtopic-chip" title="${s}">${s}</span>`).join('')
-            : '';
+        if (tagsEl) tagsEl.innerHTML = result.vark.map(k => {
+          const c = VARK_CFG[k];
+          return `<span class="yt-vark-tag" style="color:${c.color};border-color:${c.color}55;background:${c.color}15;">${c.emoji} ${c.label.split('/')[0]}</span>`;
+        }).join('');
+
+        if (subsEl) subsEl.innerHTML = (result.subtopics||[]).length
+          ? result.subtopics.map(s=>`<span class="yt-subtopic-chip" title="${s}">${s}</span>`).join('')
+          : '';
+
+        if (pagesEl) {
+          const pages = result.pages_covered || [];
+          if (pages.length === 0) {
+            pagesEl.innerHTML = '<span class="yt-pages-label" style="opacity:0.4;">PDF: —</span>';
+          } else {
+            // Group consecutive pages into ranges e.g. [1,2,3,5,6] → "1–3", "5–6"
+            const ranges = [];
+            let start = pages[0], end = pages[0];
+            for (let i = 1; i < pages.length; i++) {
+              if (pages[i] === end + 1) { end = pages[i]; }
+              else { ranges.push([start, end]); start = end = pages[i]; }
+            }
+            ranges.push([start, end]);
+            const chips = ranges.map(([s,e]) => {
+              const label = s === e ? `${s}` : `${s}–${e}`;
+              const title = s === e ? `ไปหน้า ${s}` : `ไปหน้า ${s}–${e}`;
+              return `<span class="yt-page-range" title="${title}" onclick="scrollToPdfPage(${s})">${label}</span>`;
+            }).join('');
+            pagesEl.innerHTML = `<span class="yt-pages-label">PDF หน้า:</span>${chips}`;
+          }
         }
       });
     }, idx * 350);
   });
 }
 
-// ─── TYPHOON: วิเคราะห์ VARK tags + หัวข้อย่อยต่อ video ───────
-async function analyzeVideoVark(video, varkWeightDesc, order) {
+// ─── TYPHOON: วิเคราะห์ VARK tags + subtopics + pages_covered ─
+async function analyzeVideoVark(video, varkWeightDesc, order, learningMaterial) {
   const vid = video.video_id;
   if (videoVarkCache.has(vid)) return videoVarkCache.get(vid);
 
@@ -1629,13 +2541,7 @@ async function analyzeVideoVark(video, varkWeightDesc, order) {
     for (const { k, score } of order.slice(1)) {
       if (score >= primaryScore * 0.5 && tags.length < 4) tags.push(k);
     }
-    return { vark: tags, subtopics: [] };
-  }
-
-  if (!typhoonKey) {
-    const fb = fallback();
-    videoVarkCache.set(vid, fb);
-    return fb;
+    return { vark: tags, subtopics: [], pages_covered: [] };
   }
 
   // ── Step 1: ดึงข้อมูลเนื้อหาจริงของคลิปจาก backend ─────────
@@ -1654,79 +2560,47 @@ async function analyzeVideoVark(video, varkWeightDesc, order) {
     console.warn(`video-info fetch error [${vid}]:`, e.message);
   }
 
-  // ── Step 2: prompt ดึง VARK + subtopics พร้อมกัน ────────────
-  const contentBlock = [
-    description ? `- Description: "${description.slice(0, 600)}"` : '',
-    vidTags.length  ? `- Tags: ${vidTags.slice(0, 10).join(', ')}` : '',
-    topicCats.length
-      ? `- Topic categories: ${topicCats.map(u => u.split('/').pop()).join(', ')}`
-      : '',
-  ].filter(Boolean).join('\n');
+  // ── Step 2: สร้าง page-snippet map จาก learning material ────
+  const totalPg = pdfDoc ? pdfDoc.numPages : 0;
+  const pageSnippets = [];
+  if (learningMaterial && totalPg > 0) {
+    const matLines  = learningMaterial.split('\n').filter(l => l.trim());
+    const chunkSize = Math.max(1, Math.ceil(matLines.length / totalPg));
+    for (let pg = 1; pg <= Math.min(totalPg, 30); pg++) {
+      const slice = matLines.slice((pg-1)*chunkSize, pg*chunkSize).join(' ').slice(0, 100).trim();
+      if (slice) pageSnippets.push(`p${pg}: ${slice}`);
+    }
+  }
 
-  const prompt =
-`You are a VARK learning-style classifier for YouTube educational videos.
-
-VARK definitions:
-- V (Visual): diagrams, charts, animations, slides, infographics, screen recordings
-- A (Aural): lecture/talk/podcast/discussion, heavy spoken explanation
-- R (Read/Write): text on screen, code walkthroughs, written notes, documentation
-- K (Kinesthetic): hands-on demos, live coding, experiments, step-by-step practice
-
-Learner's VARK profile:
-${varkWeightDesc}
-
-Video:
-- Title: "${video.title}"
-- Channel: "${video.channel}"
-${contentBlock}
-
-Reply with ONLY valid JSON, no markdown, no explanation:
-{
-  "vark": ["V","K"],
-  "subtopics": ["หัวข้อย่อย 1","หัวข้อย่อย 2","หัวข้อย่อย 3"]
-}
-
-Rules:
-- "vark": 1–4 letters from V,A,R,K that genuinely appear in the video
-- "subtopics": 2–4 short Thai or English topic keywords extracted from the video content (e.g. "if-else", "ลูป for", "recursion"). Use Thai when the video is in Thai. Max 12 characters each.`;
+  // ── Step 3: build vark_style จาก order array ──────────────────
+  const varkStyle = { dominant: order[0]?.k || 'R' };
+  for (const { k, score } of order) varkStyle[k] = score;
 
   try {
-    const res = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
+    const res = await fetch(`${API_BASE}/classify-video`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${typhoonKey}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:       'typhoon-v2.5-30b-a3b-instruct',
-        max_tokens:  120,
-        temperature: 0.0,
-        messages: [{ role: 'user', content: prompt }],
+        title:            video.title,
+        channel:          video.channel,
+        description,
+        tags:             vidTags,
+        topic_categories: topicCats,
+        page_snippets:    pageSnippets,
+        vark_style:       varkStyle,
       }),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const raw  = (data.choices?.[0]?.message?.content || '').trim();
+    const parsed = await res.json();
 
-    // Parse JSON robustly
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const vark = [...new Set(
-        (parsed.vark || []).map(s => String(s).trim().toUpperCase())
-          .filter(s => ['V','A','R','K'].includes(s))
-      )].slice(0, 4);
-      const subtopics = (parsed.subtopics || [])
-        .filter(s => typeof s === 'string' && s.trim())
-        .map(s => s.trim().slice(0, 16))
-        .slice(0, 4);
-
-      const result = { vark: vark.length ? vark : fallback().vark, subtopics };
-      videoVarkCache.set(vid, result);
-      return result;
-    }
-    throw new Error('No JSON found');
+    const result = {
+      vark:          (parsed.vark && parsed.vark.length) ? parsed.vark : fallback().vark,
+      subtopics:     parsed.subtopics     || [],
+      pages_covered: parsed.pages_covered || [],
+    };
+    videoVarkCache.set(vid, result);
+    return result;
 
   } catch(e) {
     console.warn(`VARK AI tag error [${vid}]:`, e.message);
@@ -1743,7 +2617,13 @@ Rules:
   if (!handle || !leftCol) return;
 
   const MIN_W = 140, MAX_W = 560;
-  let dragging = false, startX = 0, startW = 0;
+  let dragging = false, startX = 0, startW = 0, rerenderTimer = 0;
+
+  function scheduleRerender() {
+    if (!pdfDoc) return;
+    clearTimeout(rerenderTimer);
+    rerenderTimer = setTimeout(() => renderPage(currentPage), 120);
+  }
 
   function begin(clientX) {
     dragging = true; startX = clientX; startW = leftCol.offsetWidth;
@@ -1754,13 +2634,14 @@ Rules:
     if (!dragging) return;
     const w = Math.min(MAX_W, Math.max(MIN_W, startW + (clientX - startX)));
     leftCol.style.width = w + 'px';
-    if (pdfDoc) renderPage(currentPage);
+    scheduleRerender();
   }
   function end() {
     if (!dragging) return;
     dragging = false;
     handle.classList.remove('is-dragging');
     document.body.classList.remove('col-resizing');
+    scheduleRerender();
     try { localStorage.setItem('vark_left_w', leftCol.offsetWidth); } catch(_) {}
   }
 
@@ -1989,9 +2870,20 @@ async function renderMermaidBlocks(container) {
       wrap.innerHTML = svg;
       const svgEl = wrap.querySelector('svg');
       if (svgEl) {
-        svgEl.style.maxWidth = '100%';
-        svgEl.style.height   = 'auto';
+        // Strip intrinsic dims so CSS drives sizing from the viewBox.
+        // Tall diagrams keep natural width and scroll vertically;
+        // wide/square diagrams fill the container width.
         svgEl.removeAttribute('width');
+        svgEl.removeAttribute('height');
+        svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        const vb = (svgEl.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+        const ratio = vb.length === 4 && vb[2] ? vb[3] / vb[2] : 0;
+        if (ratio > 1.4) {
+          // Tall — keep text readable, allow vertical scroll in wrap.
+          wrap.classList.add('mermaid-tall');
+        } else {
+          wrap.classList.remove('mermaid-tall');
+        }
       }
       rendered = true;
     } catch (e) {

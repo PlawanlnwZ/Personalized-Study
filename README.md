@@ -165,3 +165,7 @@ dspy_module.compile_and_save(model_path="vark_model.json")
 const API_BASE = 'http://localhost:8000';
 ```
 เป็น URL ของ server จริง เช่น `https://your-domain.com`
+
+
+
+

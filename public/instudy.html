@@ -986,8 +986,6 @@ const varkData = JSON.parse(sessionStorage.getItem('__vark_current__') || 'null'
 let feedbackSessions = [];
 let currentSession   = null;
 
-// Typhoon API key (โหลดจาก /config)
-let typhoonKey = '';
 const videoVarkCache = new Map();  // cache: videoId → ['V','K',…]
 
 const VARK_CFG = {
@@ -996,19 +994,6 @@ const VARK_CFG = {
   R: { label:'Read/Write',  color:'#5cd6b0', emoji:'📝' },
   K: { label:'Kinesthetic', color:'#f5c842', emoji:'🤸' },
 };
-
-// ─────────────────────────────────────────────────────────────
-// FETCH CONFIG — ดึง TYPHOON_API_KEY จาก backend
-// ─────────────────────────────────────────────────────────────
-(async function loadConfig() {
-  try {
-    const res  = await fetch(`${API_BASE}/config`);
-    const cfg  = await res.json();
-    typhoonKey = cfg.typhoon_api_key || '';
-  } catch(e) {
-    console.warn('Config fetch failed:', e.message);
-  }
-})();
 
 // ─────────────────────────────────────────────────────────────
 // INIT
@@ -1346,7 +1331,7 @@ function renderVideos(videos) {
     card.innerHTML = `
       <img class="yt-thumb" src="${v.thumbnail}" alt="${v.title}" loading="lazy">
       <div class="yt-embed-wrap">
-        <iframe src="${v.embed_url}?autoplay=1" allowfullscreen allow="autoplay"></iframe>
+        <iframe data-src="${v.embed_url}?autoplay=1" allowfullscreen allow="autoplay; encrypted-media"></iframe>
       </div>
       <div class="yt-info">
         <div class="yt-vark-tags" id="vtags-${vid}">
@@ -1364,8 +1349,16 @@ function renderVideos(videos) {
     `;
 
     card.addEventListener('click', () => {
-      document.querySelectorAll('.yt-card').forEach(c => c.classList.remove('playing'));
+      document.querySelectorAll('.yt-card.playing').forEach(c => {
+        c.classList.remove('playing');
+        const prevIframe = c.querySelector('iframe');
+        if (prevIframe) prevIframe.src = '';
+      });
       card.classList.add('playing');
+      const iframe = card.querySelector('iframe');
+      if (iframe && iframe.dataset.src) {
+        iframe.src = iframe.dataset.src;
+      }
     });
 
     grid.appendChild(card);
@@ -1414,12 +1407,6 @@ async function analyzeVideoVark(video, varkWeightDesc, order) {
     return { vark: tags, subtopics: [] };
   }
 
-  if (!typhoonKey) {
-    const fb = fallback();
-    videoVarkCache.set(vid, fb);
-    return fb;
-  }
-
   // ── Step 1: ดึงข้อมูลเนื้อหาจริงของคลิปจาก backend ─────────
   let description = '';
   let vidTags     = [];
@@ -1436,82 +1423,34 @@ async function analyzeVideoVark(video, varkWeightDesc, order) {
     console.warn(`video-info fetch error [${vid}]:`, e.message);
   }
 
-  // ── Step 2: สร้าง prompt ดึง VARK + subtopics พร้อมกัน ───────
-  const contentBlock = [
-    description ? `- Description: "${description.slice(0, 600)}"` : '',
-    vidTags.length  ? `- Tags: ${vidTags.slice(0, 10).join(', ')}` : '',
-    topicCats.length
-      ? `- Topic categories: ${topicCats.map(u => u.split('/').pop()).join(', ')}`
-      : '',
-  ].filter(Boolean).join('\n');
-
-  const prompt =
-`You are a VARK learning-style classifier for YouTube educational videos.
-
-VARK definitions:
-- V (Visual): diagrams, charts, animations, slides, infographics, screen recordings
-- A (Aural): lecture/talk/podcast/discussion, heavy spoken explanation
-- R (Read/Write): text on screen, code walkthroughs, written notes, documentation
-- K (Kinesthetic): hands-on demos, live coding, experiments, step-by-step practice
-
-Learner's VARK profile:
-${varkWeightDesc}
-
-Video:
-- Title: "${video.title}"
-- Channel: "${video.channel}"
-${contentBlock}
-
-Reply with ONLY valid JSON, no markdown, no explanation:
-{
-  "vark": ["V","K"],
-  "subtopics": ["หัวข้อย่อย 1","หัวข้อย่อย 2","หัวข้อย่อย 3"]
-}
-
-Rules:
-- "vark": 1–4 letters from V,A,R,K that genuinely appear in the video
-- "subtopics": 2–4 short Thai or English topic keywords extracted from the video content (e.g. "if-else", "ลูป for", "recursion"). Use Thai when the video is in Thai. Max 12 characters each.`;
+  // ── Step 2: build vark_style จาก order array ──────────────────
+  const varkStyle = { dominant: order[0]?.k || 'R' };
+  for (const { k, score } of order) varkStyle[k] = score;
 
   try {
-    const res = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
+    const res = await fetch(`${API_BASE}/classify-video`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${typhoonKey}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:       'typhoon-v2.5-30b-a3b-instruct',
-        max_tokens:  120,
-        temperature: 0.0,
-        messages: [{ role: 'user', content: prompt }],
+        title:            video.title,
+        channel:          video.channel,
+        description,
+        tags:             vidTags,
+        topic_categories: topicCats,
+        page_snippets:    [],
+        vark_style:       varkStyle,
       }),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const raw  = (data.choices?.[0]?.message?.content || '').trim();
+    const parsed = await res.json();
 
-    // Parse JSON robustly
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const vark = [...new Set(
-        (parsed.vark || []).map(s => String(s).trim().toUpperCase())
-          .filter(s => ['V','A','R','K'].includes(s))
-      )].slice(0, 4);
-      const subtopics = (parsed.subtopics || [])
-        .filter(s => typeof s === 'string' && s.trim())
-        .map(s => s.trim().slice(0, 16))
-        .slice(0, 4);
-
-      const result = {
-        vark:      vark.length ? vark : fallback().vark,
-        subtopics,
-      };
-      videoVarkCache.set(vid, result);
-      return result;
-    }
-    throw new Error('No JSON found in response');
+    const result = {
+      vark:      (parsed.vark && parsed.vark.length) ? parsed.vark : fallback().vark,
+      subtopics: parsed.subtopics || [],
+    };
+    videoVarkCache.set(vid, result);
+    return result;
 
   } catch(e) {
     console.warn(`VARK AI tag error [${vid}]:`, e.message);
@@ -1682,4 +1621,4 @@ function showToast(msg) {
 
 </script>
 </body>
-</html> 
+</html>

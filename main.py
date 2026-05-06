@@ -18,7 +18,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import dspy
-from dspy_module import configure_lm, load_module, VARKModule
+from dspy_module import (
+    configure_lm,
+    load_module,
+    load_quiz_module,
+    load_classifier_module,
+    VARKModule,
+    QuizModule,
+    VideoClassifierModule,
+)
 
 
 # ──────────────────────────────────────────────
@@ -41,14 +49,18 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 # Startup: configure DSPy
 # ──────────────────────────────────────────────
 vark_module: Optional[VARKModule] = None
+quiz_module: Optional[QuizModule] = None
+classifier_module: Optional[VideoClassifierModule] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global vark_module
+    global vark_module, quiz_module, classifier_module
     try:
         configure_lm()  # reads GOOGLE_API_KEY from env
-        vark_module = load_module("vark_model.json")
-        print("✅ DSPy module ready")
+        vark_module       = load_module("vark_model.json")
+        quiz_module       = load_quiz_module("quiz_model.json")
+        classifier_module = load_classifier_module("video_classifier_model.json")
+        print("✅ DSPy modules ready")
     except Exception as e:
         print(f"⚠️  DSPy startup error: {e}")
 
@@ -150,29 +162,33 @@ async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dic
     """
     ค้นหา YouTube videos
     - ถ้ามี YOUTUBE_API_KEY → ใช้ YouTube Data API v3
-    - ถ้าไม่มี → สร้าง search-URL cards ให้ผู้ใช้คลิกค้นหาเองได้ (no blank state)
+    - ถ้าไม่มี / API error / quota หมด → สร้าง search-URL cards แทน
     """
     api_key = os.environ.get("YOUTUBE_API_KEY")
 
-    # ── Fallback: สร้าง search-link cards โดยไม่ต้องใช้ API key ──
-    if not api_key:
-        results = []
-        for q in queries[:5]:
+    def make_search_links(qs):
+        """Fallback: search-link cards ที่คลิกแล้วเปิด YouTube ได้เลย"""
+        cards = []
+        for q in qs[:5]:
             q_enc = q.replace(" ", "+")
-            results.append({
-                "video_id":   None,
-                "title":      q,
-                "channel":    "ค้นหาใน YouTube",
-                "thumbnail":  "",
-                "url":        f"https://www.youtube.com/results?search_query={q_enc}",
-                "embed_url":  "",
+            cards.append({
+                "video_id":       None,
+                "title":          q,
+                "channel":        "ค้นหาใน YouTube",
+                "thumbnail":      "",
+                "url":            f"https://www.youtube.com/results?search_query={q_enc}",
+                "embed_url":      "",
                 "is_search_link": True,
             })
-        return results
+        return cards
 
-    # ── Official API path ──────────────────────────────────────
-    results = []
-    seen_ids = set()
+    # ── ไม่มี key → fallback ทันที ─────────────────────────────
+    if not api_key:
+        return make_search_links(queries)
+
+    # ── มี key → เรียก YouTube Data API v3 ─────────────────────
+    results   = []
+    seen_ids  = set()
 
     async with httpx.AsyncClient(timeout=10) as client:
         for query in queries[:5]:
@@ -189,6 +205,13 @@ async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dic
                     },
                 )
                 data = resp.json()
+
+                # ── ตรวจจับ quota/error response จาก Google ────
+                if "error" in data:
+                    err_msg = data["error"].get("message", "unknown")
+                    print(f"YouTube API error: {err_msg} — falling back to search links")
+                    return make_search_links(queries)
+
                 for item in data.get("items", []):
                     vid_id = item["id"].get("videoId")
                     if not vid_id or vid_id in seen_ids:
@@ -196,17 +219,22 @@ async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dic
                     seen_ids.add(vid_id)
                     snippet = item.get("snippet", {})
                     results.append({
-                        "video_id":  vid_id,
-                        "title":     snippet.get("title", ""),
-                        "channel":   snippet.get("channelTitle", ""),
-                        "thumbnail": snippet.get("thumbnails", {})
-                                            .get("medium", {}).get("url", ""),
-                        "url":       f"https://www.youtube.com/watch?v={vid_id}",
-                        "embed_url": f"https://www.youtube.com/embed/{vid_id}",
+                        "video_id":       vid_id,
+                        "title":          snippet.get("title", ""),
+                        "channel":        snippet.get("channelTitle", ""),
+                        "thumbnail":      snippet.get("thumbnails", {})
+                                                  .get("medium", {}).get("url", ""),
+                        "url":            f"https://www.youtube.com/watch?v={vid_id}",
+                        "embed_url":      f"https://www.youtube.com/embed/{vid_id}",
                         "is_search_link": False,
                     })
             except Exception as e:
                 print(f"YouTube search error for '{query}': {e}")
+
+    # ── API ไม่ให้ผลลัพธ์เลย → fallback ─────────────────────────
+    if not results:
+        print("YouTube API returned no results — falling back to search links")
+        return make_search_links(queries)
 
     return results
 
@@ -214,11 +242,89 @@ async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dic
 # ──────────────────────────────────────────────
 # Helper: Search Images (Google Custom Search)
 # ──────────────────────────────────────────────
+async def _search_images_wikimedia(image_queries: list[dict]) -> list[dict]:
+    """
+    Fallback: ค้นหาภาพจาก Wikimedia Commons (ฟรี ไม่ต้องใช้ API key)
+    ใช้ MediaWiki Action API — opensearch + imageinfo
+    """
+    results   = []
+    seen_urls = set()
+
+    async with httpx.AsyncClient(timeout=8) as client:
+        for q_obj in image_queries[:3]:
+            q = q_obj.get("q", "")
+            if not q:
+                continue
+            try:
+                # 1) ค้นหา page titles ที่ตรงกัน
+                search_resp = await client.get(
+                    "https://commons.wikimedia.org/w/api.php",
+                    params={
+                        "action":   "query",
+                        "list":     "search",
+                        "srsearch": f"{q} filetype:bitmap",
+                        "srnamespace": 6,   # namespace 6 = File:
+                        "srlimit":  4,
+                        "format":   "json",
+                    },
+                )
+                search_data = search_resp.json()
+                titles = [item["title"] for item in
+                          search_data.get("query", {}).get("search", [])]
+                if not titles:
+                    continue
+
+                # 2) ดึง URL จริงของแต่ละไฟล์
+                info_resp = await client.get(
+                    "https://commons.wikimedia.org/w/api.php",
+                    params={
+                        "action":  "query",
+                        "titles":  "|".join(titles[:4]),
+                        "prop":    "imageinfo",
+                        "iiprop":  "url|thumburl|extmetadata",
+                        "iiurlwidth": 600,
+                        "format":  "json",
+                    },
+                )
+                info_data = info_resp.json()
+                pages = info_data.get("query", {}).get("pages", {})
+
+                for page in pages.values():
+                    ii_list = page.get("imageinfo", [])
+                    if not ii_list:
+                        continue
+                    ii  = ii_list[0]
+                    url = ii.get("thumburl") or ii.get("url", "")
+                    if not url or url in seen_urls:
+                        continue
+                    # กรอง SVG / WebP ที่บาง browser render ไม่ได้
+                    if url.lower().endswith((".svg", ".webp", ".ogg", ".ogv")):
+                        continue
+                    seen_urls.add(url)
+                    meta  = ii.get("extmetadata", {})
+                    title = (meta.get("ObjectName", {}).get("value", "")
+                             or page.get("title", "").replace("File:", ""))
+                    results.append({
+                        "url":             url,
+                        "thumbnail":       url,
+                        "title":           title,
+                        "source":          "Wikimedia Commons",
+                        "alt_description": q_obj.get("altDescription", title),
+                        "query":           q,
+                    })
+                    if len(results) >= 6:
+                        return results
+            except Exception as e:
+                print(f"Wikimedia search error for '{q}': {e}")
+
+    return results
+
+
 async def search_images(image_queries: list[dict]) -> list[dict]:
     """
     รับ list ของ image query objects จาก DSPy (มี q, imgType, imgSize, rights, altDescription)
     - ถ้ามี GOOGLE_SEARCH_API + GOOGLE_SEARCH_CX → ใช้ Google Custom Search
-    - ถ้าไม่มี → ใช้ Unsplash Source (ไม่ต้อง API key, ฟรี)
+    - ถ้าไม่มี → fallback ไป Wikimedia Commons (ฟรี ไม่ต้อง key)
     """
     if not image_queries:
         return []
@@ -226,31 +332,17 @@ async def search_images(image_queries: list[dict]) -> list[dict]:
     api_key = os.environ.get("GOOGLE_SEARCH_API")
     cx      = os.environ.get("GOOGLE_SEARCH_CX")
 
-    # ── Fallback: Unsplash Source (no API key needed) ──────────
+    # ── ไม่มี Google key → ใช้ Wikimedia fallback ──────────────
     if not api_key or not cx:
-        results = []
-        for q_obj in image_queries[:5]:
-            q = q_obj.get("q", "").strip()
-            if not q:
-                continue
-            q_slug = q.replace(" ", ",")
-            url    = f"https://source.unsplash.com/featured/800x600/?{q_slug}"
-            results.append({
-                "url":             url,
-                "thumbnail":       url,
-                "title":           q,
-                "source":          "unsplash.com",
-                "alt_description": q_obj.get("altDescription", q),
-                "query":           q,
-            })
-        return results
+        print("[search_images] No Google Search key — falling back to Wikimedia Commons")
+        return await _search_images_wikimedia(image_queries)
 
     # ── Official: Google Custom Search API ─────────────────────
     results   = []
     seen_urls = set()
 
-    async with httpx.AsyncClient(timeout=12) as client:
-        for q_obj in image_queries[:5]:
+    async with httpx.AsyncClient(timeout=5) as client:
+        for q_obj in image_queries[:3]:
             try:
                 params = {
                     "key":         api_key,
@@ -310,90 +402,43 @@ async def root():
 @app.get("/config")
 async def get_config():
     """
-    ส่ง public config ให้ frontend ใช้งาน
-    รวมถึง TYPHOON_API_KEY สำหรับให้ frontend เรียก Typhoon API โดยตรง
-    (ใช้สำหรับ VARK tag classification บน video เท่านั้น)
+    ส่ง public config ให้ frontend
+    Typhoon API key ไม่ expose แล้ว — เรียกผ่าน /quiz, /classify-video, /generate ของ backend
     """
     return {
-        "typhoon_api_key":   os.environ.get("TYPHOON_API_KEY", ""),
-        "api_base":          "https://api.opentyphoon.ai/v1",
-        "image_search_ready": bool(
-            os.environ.get("GOOGLE_SEARCH_API") and
-            os.environ.get("GOOGLE_SEARCH_CX")
-        ),
+        "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+        # image search พร้อมเสมอ — มี Wikimedia Commons เป็น fallback เมื่อไม่มี Google key
+        "image_search_ready": True,
     }
 
 
 @app.post("/tts")
 async def text_to_speech(body: dict):
     """
-    Proxy Gemini TTS — รับ { "text": "..." } แล้วคืน audio/wav
-    อ่าน GEMINI_API_KEY จาก environment (ไม่ expose key ให้ browser)
+    gTTS — รับ { "text": "...", "lang": "th" } แล้วคืน audio/mpeg (mp3)
+    ใช้ Google Translate TTS endpoint ผ่าน gtts library (ไม่ต้องใช้ API key)
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
-
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.5-flash-preview-tts:generateContent?key={api_key}"
-    )
-    payload = {
-        "contents": [{"parts": [{"text": text}]}],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {"voiceName": "Aoede"}
-                }
-            },
-        },
-    }
+    lang = (body.get("lang") or "th").strip() or "th"
+
+    import asyncio
+    import io
+    from fastapi.responses import Response
+    from gtts import gTTS
+
+    def _synthesize() -> bytes:
+        buf = io.BytesIO()
+        gTTS(text=text, lang=lang, slow=False).write_to_fp(buf)
+        return buf.getvalue()
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=payload)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-        data      = resp.json()
-        part      = data["candidates"][0]["content"]["parts"][0]["inlineData"]
-        b64_audio = part["data"]
-        mime_type = part.get("mimeType", "audio/L16;rate=24000")
-
-        import base64, struct
-        from fastapi.responses import Response
-
-        raw_bytes = base64.b64decode(b64_audio)
-
-        # ถ้า Gemini คืน raw PCM (audio/L16) → แปลงเป็น WAV ก่อนส่ง
-        if "L16" in mime_type or "pcm" in mime_type.lower():
-            import re as _re
-            rate_m    = _re.search(r"rate=(\d+)", mime_type)
-            sample_rate = int(rate_m.group(1)) if rate_m else 24000
-            num_samples = len(raw_bytes) // 2
-            # WAV header (PCM 16-bit mono)
-            header = struct.pack(
-                "<4sI4s4sIHHIIHH4sI",
-                b"RIFF", 36 + len(raw_bytes), b"WAVE",
-                b"fmt ", 16, 1, 1,
-                sample_rate, sample_rate * 2, 2, 16,
-                b"data", len(raw_bytes),
-            )
-            audio_bytes = header + raw_bytes
-            return Response(content=audio_bytes, media_type="audio/wav")
-
-        # ประเภทอื่น (audio/wav, audio/mp3 ฯลฯ) → ส่งตรง
-        return Response(content=raw_bytes, media_type=mime_type)
-
-    except HTTPException:
-        raise
+        audio_bytes = await asyncio.to_thread(_synthesize)
+        return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini TTS error: {e}")
+        raise HTTPException(status_code=500, detail=f"gTTS error: {e}")
 
 
 @app.get("/video-info/{video_id}")
@@ -557,6 +602,133 @@ async def generate(
         "images": images,
         "context_snippet": context[:500],
         "vark_style": vark_data,
+    }
+
+
+class QuizRequest(BaseModel):
+    learning_material: str
+    vark_style: dict
+    difficulty: str = "medium"   # easy | medium | hard
+    count: int = 5
+
+
+@app.post("/quiz")
+async def generate_quiz(req: QuizRequest):
+    """
+    สร้าง MCQ จาก learning material + VARK profile + difficulty
+    คืน JSON array ของคำถาม (validated)
+    """
+    if quiz_module is None:
+        raise HTTPException(status_code=503, detail="Quiz module not initialized")
+
+    diff = req.difficulty if req.difficulty in ("easy", "medium", "hard") else "medium"
+    count = max(1, min(int(req.count or 5), 20))
+
+    try:
+        pred = quiz_module(
+            learning_material=req.learning_material[:3500],
+            vark_style=json.dumps(req.vark_style, ensure_ascii=False),
+            difficulty=diff,
+            count=count,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quiz generation error: {e}")
+
+    raw = pred.questions or "[]"
+    try:
+        parsed = _parse_json_loose(raw)
+    except Exception:
+        parsed = []
+
+    questions = []
+    for q in parsed if isinstance(parsed, list) else []:
+        if not isinstance(q, dict):
+            continue
+        opts = q.get("options") or {}
+        if not all(k in opts for k in ("A", "B", "C", "D")):
+            continue
+        if q.get("answer") not in ("A", "B", "C", "D"):
+            continue
+        questions.append({
+            "q":           str(q.get("q", "")).strip(),
+            "options":     {k: str(opts[k]) for k in ("A", "B", "C", "D")},
+            "answer":      q["answer"],
+            "vark":        q.get("vark") if q.get("vark") in ("V","A","R","K") else "R",
+            "diff":        q.get("diff") if q.get("diff") in ("easy","medium","hard") else diff,
+            "explanation": str(q.get("explanation", "")).strip(),
+        })
+
+    return {"questions": questions}
+
+
+class VideoClassifyRequest(BaseModel):
+    title: str
+    channel: str = ""
+    description: str = ""
+    tags: list[str] = []
+    topic_categories: list[str] = []
+    page_snippets: list[str] = []   # ["p1: ...", "p2: ..."]
+    vark_style: dict
+
+
+@app.post("/classify-video")
+async def classify_video(req: VideoClassifyRequest):
+    """
+    จัดประเภท YouTube video ตาม VARK + จับคู่กับหน้า PDF
+    คืน {vark, subtopics, pages_covered}
+    """
+    if classifier_module is None:
+        raise HTTPException(status_code=503, detail="Classifier module not initialized")
+
+    metadata = "\n".join(filter(None, [
+        f"Description: {req.description[:400]}" if req.description else "",
+        f"Tags: {', '.join(req.tags[:8])}" if req.tags else "",
+        (f"Categories: {', '.join(c.split('/')[-1] for c in req.topic_categories)}"
+         if req.topic_categories else ""),
+    ]))
+    weight_desc = ", ".join(
+        f"{k} {req.vark_style.get(k, 0)}%"
+        for k in ("V", "A", "R", "K")
+        if req.vark_style.get(k, 0)
+    ) or f"dominant {req.vark_style.get('dominant', 'R')}"
+
+    try:
+        pred = classifier_module(
+            video_title=req.title,
+            video_channel=req.channel,
+            video_metadata=metadata,
+            page_snippets="\n".join(req.page_snippets[:30]),
+            vark_weight_desc=weight_desc,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Classifier error: {e}")
+
+    raw = (pred.classification or "").strip()
+    parsed = {}
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if m:
+        try:
+            parsed = json.loads(m.group(0))
+        except Exception:
+            parsed = {}
+
+    vark = [s for s in (parsed.get("vark") or [])
+            if isinstance(s, str) and s.upper() in ("V", "A", "R", "K")]
+    vark = list(dict.fromkeys(s.upper() for s in vark))[:4]
+
+    subtopics = [str(s).strip()[:16]
+                 for s in (parsed.get("subtopics") or [])
+                 if isinstance(s, str) and s.strip()][:4]
+
+    pages_covered = sorted({
+        int(n) for n in (parsed.get("pages_covered") or [])
+        if isinstance(n, int) and n >= 1
+    })[:8]
+
+    return {
+        "vark": vark,
+        "subtopics": subtopics,
+        "pages_covered": pages_covered,
     }
 
 

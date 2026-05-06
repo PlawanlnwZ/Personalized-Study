@@ -6,6 +6,13 @@
 <title>แบบสอบถาม VARK</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script>
+  // Apply saved theme before paint to avoid flash
+  (function () {
+    var t = localStorage.getItem('__vark_theme__');
+    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  })();
+</script>
 </head>
 <body>
 
@@ -29,6 +36,53 @@
         <span class="tts-label" id="tts-label">เปิดเสียงอ่านโจทย์</span>
         <span class="tts-status-dot" id="tts-status-dot"></span>
       </button>
+      <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="สลับโหมดมืด/สว่าง">
+        <span class="theme-icon" id="theme-icon">🌙</span>
+        <span class="theme-label" id="theme-label">โหมดมืด</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Chevron Step Bar ── -->
+  <div class="step-bar" id="step-bar" aria-label="ขั้นตอนการใช้งาน">
+    <div class="step-chev is-active" data-step="1">
+      <div class="step-head">
+        <span class="step-num" data-num="1">1</span>
+        <span class="step-title">ทำแบบทดสอบ</span>
+      </div>
+      <div class="step-cells" id="step1-cells" aria-label="ความคืบหน้า 16 ข้อ"></div>
+    </div>
+    <div class="step-chev is-future" data-step="2">
+      <div class="step-head">
+        <span class="step-num" data-num="2">2</span>
+        <span class="step-title">ดูสไตล์ของคุณ</span>
+      </div>
+      <div class="step-cells">
+        <span class="step-cell" data-vark="V">V</span>
+        <span class="step-cell" data-vark="A">A</span>
+        <span class="step-cell" data-vark="R">R</span>
+        <span class="step-cell" data-vark="K">K</span>
+      </div>
+    </div>
+    <div class="step-chev is-future" data-step="3">
+      <div class="step-head">
+        <span class="step-num" data-num="3">3</span>
+        <span class="step-title">เรียนแบบส่วนตัว</span>
+      </div>
+      <div class="step-cells">
+        <span class="step-cell is-emoji" title="อัปโหลด PDF">📄</span>
+        <span class="step-cell is-emoji" title="สรุปอัตโนมัติ">✨</span>
+        <span class="step-cell is-emoji" title="ฝึกทำแบบฝึกหัด">🎯</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Narrator (VARKy — บัดดี้แนะแนวส่วนตัว) ── -->
+  <div class="narrator" id="narrator">
+    <div class="narrator-avatar">🦉</div>
+    <div class="narrator-bubble">
+      <div class="narrator-name">VARKy · บัดดี้แนะแนว</div>
+      <div class="narrator-text" id="narrator-text">เฮ้! ฉัน VARKy ก่อนเริ่มเรียน เราจะช่วยหาว่าคุณเรียนรู้ได้ดีที่สุดแบบไหน — ใช้เวลาแค่ <strong>~5 นาที</strong></div>
     </div>
   </div>
 
@@ -39,6 +93,10 @@
       <h2>คำแนะนำการทำแบบสอบถาม</h2>
       <p>เลือกคำตอบที่อธิบายทางเลือกที่ดีที่สุดของคุณ <strong>สามารถเลือกได้มากกว่าหนึ่งคำตอบ</strong> ถ้าคำตอบเดียวไม่เพียงพอ เว้นวางไว้ในข้อที่ไม่เกี่ยวข้องกับคุณ</p>
       <div class="intro-stats">
+        <div class="stat-box">
+          <div class="num">3</div>
+          <div class="lbl">ขั้นตอน</div>
+        </div>
         <div class="stat-box">
           <div class="num">16</div>
           <div class="lbl">คำถาม</div>
@@ -95,10 +153,19 @@
     <div class="result-header">
       <h2>🎉 ผลลัพธ์ของคุณ</h2>
       <p>รูปแบบการเรียนรู้ตามแบบ VARK</p>
+      <div class="bank-progress-badge" id="bank-progress-badge">📊 ผลจาก 1/2 ชุดคำถาม</div>
       <div id="dominant-display"></div>
     </div>
 
     <div class="scores-grid" id="scores-grid"></div>
+
+    <!-- ── Bank 2 Optional CTA — Phase 4 ── -->
+    <div class="bank2-cta" id="bank2-cta">
+      <div class="bank2-icon">🎯</div>
+      <h3>อยากให้ผลแม่นยำขึ้นไหม?</h3>
+      <p>ลองทำ <strong>ชุดที่ 2 (Optional)</strong> — อีก 16 ข้อ คำถามต่างไปแต่หลักการเดิม<br>ระบบจะเฉลี่ยผลทั้ง 2 ชุดให้อัตโนมัติเพื่อความแม่นยำที่สูงขึ้น</p>
+      <button class="btn-bank2" onclick="startBank2()">+ ทำชุดที่ 2 →</button>
+    </div>
 
     <!-- Hidden data storage (ไม่แสดงใน UI) -->
     <div class="export-section" aria-hidden="true">
@@ -126,10 +193,33 @@
 
 <script src="main.js"></script>
 <script>
-  // Update CTA label after results render
-  const _origShow = showResults;
-  // Patch to update label after dominant is known
-  document.addEventListener('DOMContentLoaded', () => {});
+  // Init chevron cells + narrator on first paint
+  document.addEventListener('DOMContentLoaded', () => {
+    StepBar.initQuestionCells(16);
+    TTS.init();          // restore TTS on/off preference from localStorage
+    Narrator.intro();
+    syncThemeButton();
+  });
+
+  function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    if (isDark) {
+      html.removeAttribute('data-theme');
+      localStorage.setItem('__vark_theme__', 'light');
+    } else {
+      html.setAttribute('data-theme', 'dark');
+      localStorage.setItem('__vark_theme__', 'dark');
+    }
+    syncThemeButton();
+  }
+  function syncThemeButton() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const icon = document.getElementById('theme-icon');
+    const lbl  = document.getElementById('theme-label');
+    if (icon) icon.textContent = isDark ? '☀️' : '🌙';
+    if (lbl)  lbl.textContent  = isDark ? 'โหมดสว่าง' : 'โหมดมืด';
+  }
 </script>
 </body>
 </html>
