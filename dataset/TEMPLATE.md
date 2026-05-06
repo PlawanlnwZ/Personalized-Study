@@ -182,7 +182,6 @@
 - [ ] `context` ไม่ซ้ำหัวข้อกับ split อื่น (zero leakage)
 - [ ] V+A+R+K รวมเป็น 100
 - [ ] `dominant` ตรงกับ style ที่ score สูงสุด
-- [ ] `source` = `"manual"`
 - [ ] `split` ตรงกับไฟล์
 - [ ] `notes` อธิบายความคาดหวังของ output
 
