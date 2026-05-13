@@ -11,7 +11,9 @@
     },
     "source": "manual",
     "split": "val",
-    "notes": "V dominant + R/K secondary. Expected diagram โครงสร้างระบบสุริยะ พร้อมตารางเปรียบเทียบดาวเคราะห์ชั้นในและชั้นนอก (ขนาด/ระยะทาง/องค์ประกอบ) และแบบฝึกหัดจับคู่ดาวเคราะห์กับลักษณะ"
+    "expected": {
+      "rationale": "V dominant + R/K secondary. Expected diagram โครงสร้างระบบสุริยะ พร้อมตารางเปรียบเทียบดาวเคราะห์ชั้นในและชั้นนอก (ขนาด/ระยะทาง/องค์ประกอบ) และแบบฝึกหัดจับคู่ดาวเคราะห์กับลักษณะ"
+    }
   },
   {
     "id": "val_002",
@@ -25,7 +27,9 @@
     },
     "source": "manual",
     "split": "val",
-    "notes": "A dominant + R/K secondary. Expected story-telling แบบมี gTTS ปุ่มเล่นเสียง บทพูดของตัวละคร (เด็ก vs ชาวบ้าน) และคำถามชวนคิดท้ายเรื่องเกี่ยวกับบทเรียน"
+    "expected": {
+      "rationale": "A dominant + R/K secondary. Expected story-telling แบบมี gTTS ปุ่มเล่นเสียง บทพูดของตัวละคร (เด็ก vs ชาวบ้าน) และคำถามชวนคิดท้ายเรื่องเกี่ยวกับบทเรียน"
+    }
   },
   {
     "id": "val_003",
@@ -39,7 +43,9 @@
     },
     "source": "manual",
     "split": "val",
-    "notes": "R dominant + V/K secondary. Expected ใช้ heading/bullet จัดนิยามพันธะแต่ละประเภทอย่างเป็นระเบียบ มี definition list และตารางเปรียบเทียบสมบัติ ปิดท้ายด้วย fill-in-blank/recall quiz"
+    "expected": {
+      "rationale": "R dominant + V/K secondary. Expected ใช้ heading/bullet จัดนิยามพันธะแต่ละประเภทอย่างเป็นระเบียบ มี definition list และตารางเปรียบเทียบสมบัติ ปิดท้ายด้วย fill-in-blank/recall quiz"
+    }
   },
   {
     "id": "val_004",
@@ -53,6 +59,8 @@
     },
     "source": "manual",
     "split": "val",
-    "notes": "K dominant + R/A secondary. Expected step-by-step worked examples (แทนค่าทีละขั้น) ตามด้วยโจทย์ลองทำ 3-4 ข้อ พร้อมปุ่ม ```เฉลย``` แต่ละข้อ และเปรียบเทียบกับดอกเบี้ยคงต้น"
+    "expected": {
+      "rationale": "K dominant + R/A secondary. Expected step-by-step worked examples (แทนค่าทีละขั้น) ตามด้วยโจทย์ลองทำ 3-4 ข้อ พร้อมปุ่ม ```เฉลย``` แต่ละข้อ และเปรียบเทียบกับดอกเบี้ยคงต้น"
+    }
   }
 ]

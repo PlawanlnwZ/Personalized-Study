@@ -2038,12 +2038,18 @@ function parseMD(md) {
   while (i < lines.length) {
     var raw = lines[i];
 
-    // Fenced code block
-    if (/^```/.test(raw)) {
-      var lang = raw.slice(3).trim();
+    // Fenced code block — tolerate leading whitespace + zero-width chars (NBSP, ZWSP, BOM)
+    // so fences emitted inside list items or with stray invisible chars still parse.
+    var fenceClean = raw.replace(/[​﻿ ]/g, '').replace(/^[ \t]+/, '');
+    if (/^```/.test(fenceClean)) {
+      var lang = fenceClean.slice(3).trim();
       var code = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
+      while (i < lines.length) {
+        var closeClean = lines[i].replace(/[​﻿ ]/g, '').replace(/^[ \t]+/, '');
+        if (/^```/.test(closeClean)) break;
+        code.push(lines[i]); i++;
+      }
       var langLower = lang.toLowerCase();
       // ── Mermaid: สร้าง mermaid-wrap ให้ renderMermaidBlocks() จับได้ ──
       if (lang === 'mermaid') {

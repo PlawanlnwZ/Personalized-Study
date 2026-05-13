@@ -1,0 +1,25 @@
+[
+  {
+    "video_url": "https://www.youtube.com/watch?v=ZZsetA-jcO8",
+    "video_title": "ทุนนิยม เเละสังคมนิยม แบบไหนดีกว่ากัน :Capitalism vs. Socialism",
+    "vark_style": {
+      "V": 60,
+      "A": 10,
+      "R": 20,
+      "K": 10,
+      "dominant": "V"
+    },
+    "expected": {
+      "vark": [
+        "V",
+        "A"
+      ],
+      "subtopics": [
+        "Capitalism",
+        "Socialism"
+      ],
+      "rationale": "ส่วนใหญ่ภายในคลิปไม่มีการนำเสนอเป็นข้อความจึงไม่ใช่ (R) + มีการนำเสนอเป็นรูปภาพ panel จึงมี (V) + ไม่มีมี quiz ทดสอบจึงไม่มี (K) + มีการเล่าเรื่อง พูด อธิบายให้เข้าใจ (A)"
+    },
+    "split": "test"
+  }
+]

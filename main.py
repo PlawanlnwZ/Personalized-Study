@@ -667,15 +667,18 @@ class VideoClassifyRequest(BaseModel):
     description: str = ""
     tags: list[str] = []
     topic_categories: list[str] = []
-    page_snippets: list[str] = []   # ["p1: ...", "p2: ..."]
+    # page_snippets accepted สำหรับ backward-compat แต่ classifier ไม่ใช้แล้ว
+    # page mapping ทำใน step แยก (frontend / page-matcher endpoint)
+    page_snippets: list[str] = []
     vark_style: dict
 
 
 @app.post("/classify-video")
 async def classify_video(req: VideoClassifyRequest):
-    """
-    จัดประเภท YouTube video ตาม VARK + จับคู่กับหน้า PDF
-    คืน {vark, subtopics, pages_covered}
+    """จัดประเภท YouTube video → คืน {vark, subtopics, pages_covered}
+
+    pages_covered จะเป็น [] เสมอจาก endpoint นี้ —
+    การจับคู่หน้า PDF เป็น runtime step แยก (ไม่ผ่าน classifier)
     """
     if classifier_module is None:
         raise HTTPException(status_code=503, detail="Classifier module not initialized")
@@ -697,7 +700,6 @@ async def classify_video(req: VideoClassifyRequest):
             video_title=req.title,
             video_channel=req.channel,
             video_metadata=metadata,
-            page_snippets="\n".join(req.page_snippets[:30]),
             vark_weight_desc=weight_desc,
         )
     except Exception as e:
@@ -720,15 +722,10 @@ async def classify_video(req: VideoClassifyRequest):
                  for s in (parsed.get("subtopics") or [])
                  if isinstance(s, str) and s.strip()][:4]
 
-    pages_covered = sorted({
-        int(n) for n in (parsed.get("pages_covered") or [])
-        if isinstance(n, int) and n >= 1
-    })[:8]
-
     return {
         "vark": vark,
         "subtopics": subtopics,
-        "pages_covered": pages_covered,
+        "pages_covered": [],
     }
 
 

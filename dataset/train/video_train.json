@@ -1,0 +1,101 @@
+[
+  {
+    "video_url": "https://www.youtube.com/watch?v=IznbxGpQsuA",
+    "video_title": "ครูดิวติว Grammar: Verb to Be คืออะไร? มีวิธีใช้ยังไง? สรุปจบในคลิปนี้เลย!",
+    "vark_style": {
+      "V": 20,
+      "A": 10,
+      "R": 60,
+      "K": 10,
+      "dominant": "R"
+    },
+    "expected": {
+      "vark": [
+        "R",
+        "V",
+        "K"
+      ],
+      "subtopics": [
+        "Verb to be",
+        "Present continuous",
+        "Passive"
+      ],
+      "rationale": "ครูเขียนอธิบายกฎไวยากรณ์บนกระดาน (R) + ใช้ตัวอย่างประโยคในตารางเปรียบเทียบ is/am/are (V) + มี quiz ให้ผู้ดูทำตาม จึงเป็น (K) แต่ไม่มีบทพูด หรือ story telling จึงไม่ใช่ (A)"
+    },
+    "split": "train"
+  },
+  {
+    "video_url": "https://www.youtube.com/watch?v=YDJpoFvz1NU",
+    "video_title": "Pnr Cnr ใช้ต่างกันยังไง (ความน่าจะเป็น) - คณิตวันละนิด EP.2 | คณิตศาสตร์ by พี่ปั้น SmartMathPro",
+    "vark_style": {
+      "V": 20,
+      "A": 20,
+      "R": 10,
+      "K": 50,
+      "dominant": "K"
+    },
+    "expected": {
+      "vark": [
+        "K",
+        "A",
+        "R"
+      ],
+      "subtopics": [
+        "ความน่าจะเป็น",
+        "Pnr",
+        "Cnr"
+      ],
+      "rationale": "ครูเขียนอธิบาย Pnr,Cnr ในตาราง และมีสีประกอบ (R) + ไม่มีตารางหรือ mindmap เปรียบเทียบจึงไม่เป็น (V) มี + quiz ให้ผู้ดูทำตาม จึงเป็น (K) มีบทพูด และ story telling จึงเป็น (A)"
+    },
+    "split": "train"
+  },
+  {
+    "video_url": "https://www.youtube.com/watch?v=bi9IA3Xbg60",
+    "video_title": "คลิปการปฐมพยาบาลเบื้องต้นสำหรับประชาชน",
+    "vark_style": {
+      "V": 50,
+      "A": 20,
+      "R": 10,
+      "K": 20,
+      "dominant": "V"
+    },
+    "expected": {
+      "vark": [
+        "V",
+        "K",
+        "A",
+        "R"
+      ],
+      "subtopics": [
+        "การปฐมพยาบาลเบื้องต้น",
+        "Heimlich",
+        "กลุ่มอาการต่างๆ"
+      ],
+      "rationale": "มีการใช้ภาพแอนิเมชันประกอบตลอดทั้งคลิป และรูปภาพกราฟิกอธิบาย (V) + มีเสียงบรรยายอธิบายเหตุการณ์และขั้นตอนการปฐมพยาบาลอย่างชัดเจน ตั้งแต่ต้นจนจบ (A) + มีการแสดงท่าทางประกอบให้ดูเป็นตัวอย่างแบบ Step-by-Step เพื่อให้ผู้ชมสามารถปฏิบัติตามได้จริงในสถานการณ์จำลอง (K) + มีคำบรรยายและข้อความสรุปวิธีการปฐมพยาบาลในแต่ละกรณีปรากฏบนหน้าจอ (R)"
+    },
+    "split": "train"
+  },
+  {
+    "video_url": "https://www.youtube.com/watch?v=qJ92pXj876g",
+    "video_title": "สรุปสงครามโลกครั้งที่ 2 #คลิปเดียวจบ | Point of View",
+    "vark_style": {
+      "V": 20,
+      "A": 50,
+      "R": 10,
+      "K": 20,
+      "dominant": "A"
+    },
+    "expected": {
+      "vark": [
+        "A",
+        "V",
+        "R"
+      ],
+      "subtopics": [
+        "สงครามโลกครั้งที่ 2"
+      ],
+      "rationale": "มีการใช้ภาพแผนที่ประกรอบ และรูปภาพกราฟิกอธิบาย (V) + มีการเล่าเรื่องเป็น Story telling (A) + ไม่มีการทำแบบฝึกหัดหรือแบบทดสอบใดๆจึงไม่มี (K) + มีข้อความสรุป Bullet point เกี่ยวกับสงครามโลกจึงมี (R)"
+    },
+    "split": "train"
+  }
+]

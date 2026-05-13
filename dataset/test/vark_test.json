@@ -11,7 +11,9 @@
     },
     "source": "manual",
     "split": "test",
-    "notes": "V dominant + R secondary. Expected diagram เซลล์พืชแบบ labeled พร้อมตารางเปรียบเทียบเซลล์พืช vs เซลล์สัตว์ และ quiz แบบจับคู่ส่วนประกอบกับหน้าที่"
+    "expected": {
+      "rationale": "V dominant + R secondary. Expected diagram เซลล์พืชแบบ labeled พร้อมตารางเปรียบเทียบเซลล์พืช vs เซลล์สัตว์ และ quiz แบบจับคู่ส่วนประกอบกับหน้าที่"
+    }
   },
   {
     "id": "test_002",
@@ -25,7 +27,9 @@
     },
     "source": "manual",
     "split": "test",
-    "notes": "A dominant + R secondary. Expected dialogue/role-play format กับปุ่ม gTTS เล่นบทสนทนา แยกบทบาท Waiter/Customer และ quiz เติมประโยคสนทนา"
+    "expected": {
+      "rationale": "A dominant + R secondary. Expected dialogue/role-play format กับปุ่ม gTTS เล่นบทสนทนา แยกบทบาท Waiter/Customer และ quiz เติมประโยคสนทนา"
+    }
   },
   {
     "id": "test_003",
@@ -39,7 +43,9 @@
     },
     "source": "manual",
     "split": "test",
-    "notes": "R dominant + A secondary. Expected definition list ของคำแต่ละชนิด พร้อมตัวอย่างเป็น bullet และ recall quiz ระบุชนิดคำจากประโยคที่กำหนด"
+    "expected": {
+      "rationale": "R dominant + A secondary. Expected definition list ของคำแต่ละชนิด พร้อมตัวอย่างเป็น bullet และ recall quiz ระบุชนิดคำจากประโยคที่กำหนด"
+    }
   },
   {
     "id": "test_004",
@@ -53,6 +59,8 @@
     },
     "source": "manual",
     "split": "test",
-    "notes": "K dominant + A secondary. Expected step-by-step procedure แบบ numbered list กับ scenario ลองทำ (เช่น 'พบผู้ป่วยหมดสติ คุณจะทำอะไรเป็นขั้นตอนแรก?') และ quiz แบบจับคู่ขั้นตอนกับเวลา/อัตรา"
+    "expected": {
+      "rationale": "K dominant + A secondary. Expected step-by-step procedure แบบ numbered list กับ scenario ลองทำ (เช่น 'พบผู้ป่วยหมดสติ คุณจะทำอะไรเป็นขั้นตอนแรก?') และ quiz แบบจับคู่ขั้นตอนกับเวลา/อัตรา"
+    }
   }
 ]

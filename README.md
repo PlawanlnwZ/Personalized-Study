@@ -166,6 +166,30 @@ const API_BASE = 'http://localhost:8000';
 ```
 เป็น URL ของ server จริง เช่น `https://your-domain.com`
 
+#### ทดลอง
 
+   Commands ที่ใช้บ่อย:
 
+  $env:PYTHONIOENCODING = "utf-8"
+  #  Target เดียว, compile แล้ว eval blind ทันที
+  python dspy_module.py --target vark --eval-blind
 
+  # Blind eval อย่างเดียว (judges ไม่เห็น expected)
+  python dspy_module.py --target all --skip-compile --eval-blind
+
+  # Reference-augmented eval อย่างเดียว (เดิม)
+  python dspy_module.py --target all --skip-compile --eval
+
+  # ★ ที่อยากใช้ — รันคู่กันเทียบ gap
+  python dspy_module.py --target all --skip-compile --eval --eval-blind
+
+  # Full pipeline: enrich → compile → eval ทั้ง 2 modes
+  python dspy_module.py --target all --enrich --eval --eval-blind
+
+  # Target เดียว, compile แล้ว blind eval ทันที
+  python dspy_module.py --target video --eval-blind
+
+  # Try GEPA
+  python dspy_module.py --target vark --optimizer gepa --gepa-max-calls 30
+  # Bootstrap
+  python dspy_module.py --target vark --optimizer bootstrap
