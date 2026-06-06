@@ -17,15 +17,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-import dspy
 from dspy_module import (
     configure_lm,
     load_module,
     load_quiz_module,
-    load_classifier_module,
+    load_relevance_module,
     VARKModule,
     QuizModule,
-    VideoClassifierModule,
+    VideoQueryModule,
+    VideoRelevanceModule,
+    search_youtube,
+    _fetch_video_stats,
+    _fetch_transcript,
+    _fmt_count,
 )
 
 
@@ -50,16 +54,18 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 # ──────────────────────────────────────────────
 vark_module: Optional[VARKModule] = None
 quiz_module: Optional[QuizModule] = None
-classifier_module: Optional[VideoClassifierModule] = None
+query_module: Optional[VideoQueryModule] = None
+relevance_module: Optional[VideoRelevanceModule] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global vark_module, quiz_module, classifier_module
+    global vark_module, quiz_module, query_module, relevance_module
     try:
-        configure_lm()  # reads GOOGLE_API_KEY from env
-        vark_module       = load_module("vark_model.json")
-        quiz_module       = load_quiz_module("quiz_model.json")
-        classifier_module = load_classifier_module("video_classifier_model.json")
+        configure_lm()  # reads TYPHOON_API_KEY from env
+        vark_module      = load_module("vark_model.json")
+        quiz_module      = load_quiz_module("quiz_model.json")
+        query_module     = VideoQueryModule()
+        relevance_module = load_relevance_module()
         print("✅ DSPy modules ready")
     except Exception as e:
         print(f"⚠️  DSPy startup error: {e}")
@@ -158,225 +164,78 @@ def _parse_json_loose(raw: str) -> list:
     return found if found else []
 
 
-async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dict]:
+def _run_relevance_module(topic: str, videos_list_text: str) -> tuple[str, str]:
+    """Sync wrapper — calls the DSPy VideoRelevanceModule (Typhoon).
+    Returns (relevant_indices_json, vark_per_video_json)."""
+    if relevance_module is None:
+        return "[]", "{}"
+    try:
+        pred = relevance_module(topic=topic, videos_with_transcripts=videos_list_text)
+        return pred.relevant_indices or "[]", pred.vark_per_video or "{}"
+    except Exception as e:
+        print(f"[relevance] Typhoon module error: {e}")
+        return "[]", "{}"
+
+
+async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dict]:
     """
-    ค้นหา YouTube videos
-    - ถ้ามี YOUTUBE_API_KEY → ใช้ YouTube Data API v3
-    - ถ้าไม่มี / API error / quota หมด → สร้าง search-URL cards แทน
+    1. Fetch transcripts for all real videos in parallel (YouTube scrape, no LLM cost).
+    2. One Typhoon call (DSPy VideoRelevanceModule) to judge all videos at once.
+       Gemini is NOT used here — it stays as eval judge only.
+    Falls back to original list if Typhoon fails or filters everything out.
     """
-    api_key = os.environ.get("YOUTUBE_API_KEY")
+    import asyncio
 
-    def make_search_links(qs):
-        """Fallback: search-link cards ที่คลิกแล้วเปิด YouTube ได้เลย"""
-        cards = []
-        for q in qs[:5]:
-            q_enc = q.replace(" ", "+")
-            cards.append({
-                "video_id":       None,
-                "title":          q,
-                "channel":        "ค้นหาใน YouTube",
-                "thumbnail":      "",
-                "url":            f"https://www.youtube.com/results?search_query={q_enc}",
-                "embed_url":      "",
-                "is_search_link": True,
-            })
-        return cards
+    real  = [v for v in videos if not v.get("is_search_link") and v.get("video_id")]
+    links = [v for v in videos if v.get("is_search_link")]
 
-    # ── ไม่มี key → fallback ทันที ─────────────────────────────
-    if not api_key:
-        return make_search_links(queries)
+    if not real:
+        return videos
 
-    # ── มี key → เรียก YouTube Data API v3 ─────────────────────
-    results   = []
-    seen_ids  = set()
+    # Step 1: parallel transcript fetch + batch stats fetch
+    transcripts, stats = await asyncio.gather(
+        asyncio.gather(*[asyncio.to_thread(_fetch_transcript, v["video_id"]) for v in real]),
+        _fetch_video_stats([v["video_id"] for v in real]),
+    )
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        for query in queries[:5]:
-            try:
-                resp = await client.get(
-                    "https://www.googleapis.com/youtube/v3/search",
-                    params={
-                        "part":             "snippet",
-                        "q":                query,
-                        "type":             "video",
-                        "maxResults":       max_per_query,
-                        "key":              api_key,
-                        "relevanceLanguage":"th",
-                    },
-                )
-                data = resp.json()
+    # Step 2: build numbered list with views/likes for Typhoon
+    lines = "\n".join(
+        f"{i+1}. Title: {v['title']}\n"
+        f"   Channel: {v.get('channel','')}\n"
+        f"   Views: {_fmt_count(stats.get(v['video_id'],{}).get('views',0))}  "
+        f"Likes: {_fmt_count(stats.get(v['video_id'],{}).get('likes',0))}\n"
+        f"   Transcript: {(t or '(no transcript)')[:500]}"
+        for i, (v, t) in enumerate(zip(real, transcripts))
+    )
 
-                # ── ตรวจจับ quota/error response จาก Google ────
-                if "error" in data:
-                    err_msg = data["error"].get("message", "unknown")
-                    print(f"YouTube API error: {err_msg} — falling back to search links")
-                    return make_search_links(queries)
+    # Step 3: single Typhoon call
+    raw_indices, raw_vark = await asyncio.to_thread(_run_relevance_module, topic[:1000], lines)
 
-                for item in data.get("items", []):
-                    vid_id = item["id"].get("videoId")
-                    if not vid_id or vid_id in seen_ids:
-                        continue
-                    seen_ids.add(vid_id)
-                    snippet = item.get("snippet", {})
-                    results.append({
-                        "video_id":       vid_id,
-                        "title":          snippet.get("title", ""),
-                        "channel":        snippet.get("channelTitle", ""),
-                        "thumbnail":      snippet.get("thumbnails", {})
-                                                  .get("medium", {}).get("url", ""),
-                        "url":            f"https://www.youtube.com/watch?v={vid_id}",
-                        "embed_url":      f"https://www.youtube.com/embed/{vid_id}",
-                        "is_search_link": False,
-                    })
-            except Exception as e:
-                print(f"YouTube search error for '{query}': {e}")
+    # Step 4: parse indices (max 10) + vark map
+    try:
+        m = re.search(r"\[.*?\]", raw_indices, re.DOTALL)
+        indices_list = json.loads(m.group(0)) if m else list(range(1, len(real) + 1))
+        indices = set(indices_list[:10])  # hard cap at 10
+    except Exception:
+        indices = set(range(1, min(len(real) + 1, 11)))
 
-    # ── API ไม่ให้ผลลัพธ์เลย → fallback ─────────────────────────
-    if not results:
-        print("YouTube API returned no results — falling back to search links")
-        return make_search_links(queries)
+    try:
+        m2 = re.search(r"\{.*?\}", raw_vark, re.DOTALL)
+        vark_map: dict = json.loads(m2.group(0)) if m2 else {}
+    except Exception:
+        vark_map = {}
 
-    return results
+    passed = []
+    for i, v in enumerate(real, 1):
+        if i in indices:
+            v_copy = dict(v)
+            v_copy["vark"] = vark_map.get(str(i), "")
+            passed.append(v_copy)
+
+    print(f"[relevance] {len(passed)}/{len(real)} videos passed Typhoon relevance check")
+    return (passed + links) if passed else real[:10] + links
 
 
-# ──────────────────────────────────────────────
-# Helper: Search Images (Google Custom Search)
-# ──────────────────────────────────────────────
-async def _search_images_wikimedia(image_queries: list[dict]) -> list[dict]:
-    """
-    Fallback: ค้นหาภาพจาก Wikimedia Commons (ฟรี ไม่ต้องใช้ API key)
-    ใช้ MediaWiki Action API — opensearch + imageinfo
-    """
-    results   = []
-    seen_urls = set()
-
-    async with httpx.AsyncClient(timeout=8) as client:
-        for q_obj in image_queries[:3]:
-            q = q_obj.get("q", "")
-            if not q:
-                continue
-            try:
-                # 1) ค้นหา page titles ที่ตรงกัน
-                search_resp = await client.get(
-                    "https://commons.wikimedia.org/w/api.php",
-                    params={
-                        "action":   "query",
-                        "list":     "search",
-                        "srsearch": f"{q} filetype:bitmap",
-                        "srnamespace": 6,   # namespace 6 = File:
-                        "srlimit":  4,
-                        "format":   "json",
-                    },
-                )
-                search_data = search_resp.json()
-                titles = [item["title"] for item in
-                          search_data.get("query", {}).get("search", [])]
-                if not titles:
-                    continue
-
-                # 2) ดึง URL จริงของแต่ละไฟล์
-                info_resp = await client.get(
-                    "https://commons.wikimedia.org/w/api.php",
-                    params={
-                        "action":  "query",
-                        "titles":  "|".join(titles[:4]),
-                        "prop":    "imageinfo",
-                        "iiprop":  "url|thumburl|extmetadata",
-                        "iiurlwidth": 600,
-                        "format":  "json",
-                    },
-                )
-                info_data = info_resp.json()
-                pages = info_data.get("query", {}).get("pages", {})
-
-                for page in pages.values():
-                    ii_list = page.get("imageinfo", [])
-                    if not ii_list:
-                        continue
-                    ii  = ii_list[0]
-                    url = ii.get("thumburl") or ii.get("url", "")
-                    if not url or url in seen_urls:
-                        continue
-                    # กรอง SVG / WebP ที่บาง browser render ไม่ได้
-                    if url.lower().endswith((".svg", ".webp", ".ogg", ".ogv")):
-                        continue
-                    seen_urls.add(url)
-                    meta  = ii.get("extmetadata", {})
-                    title = (meta.get("ObjectName", {}).get("value", "")
-                             or page.get("title", "").replace("File:", ""))
-                    results.append({
-                        "url":             url,
-                        "thumbnail":       url,
-                        "title":           title,
-                        "source":          "Wikimedia Commons",
-                        "alt_description": q_obj.get("altDescription", title),
-                        "query":           q,
-                    })
-                    if len(results) >= 6:
-                        return results
-            except Exception as e:
-                print(f"Wikimedia search error for '{q}': {e}")
-
-    return results
-
-
-async def search_images(image_queries: list[dict]) -> list[dict]:
-    """
-    รับ list ของ image query objects จาก DSPy (มี q, imgType, imgSize, rights, altDescription)
-    - ถ้ามี GOOGLE_SEARCH_API + GOOGLE_SEARCH_CX → ใช้ Google Custom Search
-    - ถ้าไม่มี → fallback ไป Wikimedia Commons (ฟรี ไม่ต้อง key)
-    """
-    if not image_queries:
-        return []
-
-    api_key = os.environ.get("GOOGLE_SEARCH_API")
-    cx      = os.environ.get("GOOGLE_SEARCH_CX")
-
-    # ── ไม่มี Google key → ใช้ Wikimedia fallback ──────────────
-    if not api_key or not cx:
-        print("[search_images] No Google Search key — falling back to Wikimedia Commons")
-        return await _search_images_wikimedia(image_queries)
-
-    # ── Official: Google Custom Search API ─────────────────────
-    results   = []
-    seen_urls = set()
-
-    async with httpx.AsyncClient(timeout=5) as client:
-        for q_obj in image_queries[:3]:
-            try:
-                params = {
-                    "key":         api_key,
-                    "cx":          cx,
-                    "q":           q_obj.get("q", ""),
-                    "searchType":  "image",
-                    "imgSize":     q_obj.get("imgSize", "large"),
-                    "imgType":     q_obj.get("imgType", "photo"),
-                    "rights":      q_obj.get("rights", "cc_publicdomain"),
-                    "num":         2,
-                    "safe":        "active",
-                }
-                resp = await client.get(
-                    "https://www.googleapis.com/customsearch/v1",
-                    params=params,
-                )
-                data = resp.json()
-                for item in data.get("items", []):
-                    url = item.get("link", "")
-                    if not url or url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    results.append({
-                        "url":             url,
-                        "thumbnail":       item.get("image", {}).get("thumbnailLink", url),
-                        "title":           item.get("title", ""),
-                        "source":          item.get("displayLink", ""),
-                        "alt_description": q_obj.get("altDescription", ""),
-                        "query":           q_obj.get("q", ""),
-                    })
-            except Exception as e:
-                print(f"Image search error for '{q_obj.get('q')}': {e}")
-
-    return results
 class FeedbackItem(BaseModel):
     session_id: str
     vark_style: dict
@@ -403,12 +262,10 @@ async def root():
 async def get_config():
     """
     ส่ง public config ให้ frontend
-    Typhoon API key ไม่ expose แล้ว — เรียกผ่าน /quiz, /classify-video, /generate ของ backend
+    Typhoon API key ไม่ expose แล้ว — เรียกผ่าน /quiz, /generate ของ backend
     """
     return {
         "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
-        # image search พร้อมเสมอ — มี Wikimedia Commons เป็น fallback เมื่อไม่มี Google key
-        "image_search_ready": True,
     }
 
 
@@ -547,8 +404,15 @@ async def generate(
         raise HTTPException(status_code=500, detail=f"AI generation error: {e}")
 
     learning_material = prediction.learning_material or ""
-    youtube_queries_raw = prediction.youtube_queries or "[]"
-    image_queries_raw   = prediction.image_queries   or "[]"
+
+    # 2b. Generate YouTube search queries from context (separate module)
+    youtube_queries_raw = "[]"
+    if query_module is not None:
+        try:
+            q_pred = query_module(pdf_content=context)
+            youtube_queries_raw = q_pred.youtube_queries or "[]"
+        except Exception as e:
+            print(f"[VideoQueryModule] error: {e}")
 
     # 3. Parse YouTube queries (robust — handles markdown fences, trailing commas, CoT text)
     try:
@@ -565,25 +429,11 @@ async def generate(
     print(f"[DEBUG] youtube_queries_raw: {repr(youtube_queries_raw[:200])}")
     print(f"[DEBUG] yt_queries parsed: {yt_queries}")
 
-    # 3b. Parse image queries
-    try:
-        img_queries = _parse_json_loose(image_queries_raw)
-        # กรองเฉพาะ object ที่มี key "q"
-        if isinstance(img_queries, list):
-            img_queries = [q for q in img_queries if isinstance(q, dict) and q.get("q")]
-        else:
-            img_queries = []
-    except Exception:
-        img_queries = []
-
-    print(f"[DEBUG] image_queries_raw: {repr(image_queries_raw[:200])}")
-    print(f"[DEBUG] img_queries parsed: {img_queries}")
-
-    # 4. Fetch YouTube videos
-    videos = await search_youtube(yt_queries)
-
-    # 4b. Fetch images (only when Visual queries exist)
-    images = await search_images(img_queries) if img_queries else []
+    # 4. Fetch YouTube videos and filter by transcript relevance
+    videos = await search_youtube(yt_queries, max_per_query=3)
+    topic_hint = topic.strip() or context[:150].strip()
+    videos = await filter_videos_by_relevance(videos, topic_hint)
+    print(f"[DEBUG] videos after relevance filter: {len(videos)}")
 
     # 5. Build session record (for feedback system)
     vark_data = {}
@@ -599,7 +449,6 @@ async def generate(
         "learning_material": learning_material,
         "youtube_queries": yt_queries,
         "videos": videos,
-        "images": images,
         "context_snippet": context[:500],
         "vark_style": vark_data,
     }
@@ -608,28 +457,21 @@ async def generate(
 class QuizRequest(BaseModel):
     learning_material: str
     vark_style: dict
-    difficulty: str = "medium"   # easy | medium | hard
-    count: int = 5
 
 
 @app.post("/quiz")
 async def generate_quiz(req: QuizRequest):
     """
-    สร้าง MCQ จาก learning material + VARK profile + difficulty
+    สร้าง MCQ จาก section content + VARK profile
     คืน JSON array ของคำถาม (validated)
     """
     if quiz_module is None:
         raise HTTPException(status_code=503, detail="Quiz module not initialized")
 
-    diff = req.difficulty if req.difficulty in ("easy", "medium", "hard") else "medium"
-    count = max(1, min(int(req.count or 5), 20))
-
     try:
         pred = quiz_module(
-            learning_material=req.learning_material[:3500],
+            learning_material=req.learning_material[:4000],
             vark_style=json.dumps(req.vark_style, ensure_ascii=False),
-            difficulty=diff,
-            count=count,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Quiz generation error: {e}")
@@ -654,79 +496,10 @@ async def generate_quiz(req: QuizRequest):
             "options":     {k: str(opts[k]) for k in ("A", "B", "C", "D")},
             "answer":      q["answer"],
             "vark":        q.get("vark") if q.get("vark") in ("V","A","R","K") else "R",
-            "diff":        q.get("diff") if q.get("diff") in ("easy","medium","hard") else diff,
             "explanation": str(q.get("explanation", "")).strip(),
         })
 
     return {"questions": questions}
-
-
-class VideoClassifyRequest(BaseModel):
-    title: str
-    channel: str = ""
-    description: str = ""
-    tags: list[str] = []
-    topic_categories: list[str] = []
-    # page_snippets accepted สำหรับ backward-compat แต่ classifier ไม่ใช้แล้ว
-    # page mapping ทำใน step แยก (frontend / page-matcher endpoint)
-    page_snippets: list[str] = []
-    vark_style: dict
-
-
-@app.post("/classify-video")
-async def classify_video(req: VideoClassifyRequest):
-    """จัดประเภท YouTube video → คืน {vark, subtopics, pages_covered}
-
-    pages_covered จะเป็น [] เสมอจาก endpoint นี้ —
-    การจับคู่หน้า PDF เป็น runtime step แยก (ไม่ผ่าน classifier)
-    """
-    if classifier_module is None:
-        raise HTTPException(status_code=503, detail="Classifier module not initialized")
-
-    metadata = "\n".join(filter(None, [
-        f"Description: {req.description[:400]}" if req.description else "",
-        f"Tags: {', '.join(req.tags[:8])}" if req.tags else "",
-        (f"Categories: {', '.join(c.split('/')[-1] for c in req.topic_categories)}"
-         if req.topic_categories else ""),
-    ]))
-    weight_desc = ", ".join(
-        f"{k} {req.vark_style.get(k, 0)}%"
-        for k in ("V", "A", "R", "K")
-        if req.vark_style.get(k, 0)
-    ) or f"dominant {req.vark_style.get('dominant', 'R')}"
-
-    try:
-        pred = classifier_module(
-            video_title=req.title,
-            video_channel=req.channel,
-            video_metadata=metadata,
-            vark_weight_desc=weight_desc,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Classifier error: {e}")
-
-    raw = (pred.classification or "").strip()
-    parsed = {}
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if m:
-        try:
-            parsed = json.loads(m.group(0))
-        except Exception:
-            parsed = {}
-
-    vark = [s for s in (parsed.get("vark") or [])
-            if isinstance(s, str) and s.upper() in ("V", "A", "R", "K")]
-    vark = list(dict.fromkeys(s.upper() for s in vark))[:4]
-
-    subtopics = [str(s).strip()[:16]
-                 for s in (parsed.get("subtopics") or [])
-                 if isinstance(s, str) and s.strip()][:4]
-
-    return {
-        "vark": vark,
-        "subtopics": subtopics,
-        "pages_covered": [],
-    }
 
 
 @app.post("/feedback")
@@ -776,46 +549,48 @@ async def get_feedback_dataset():
     return {"records": records, "count": len(records)}
 
 
-@app.post("/recompile")
-async def recompile():
+@app.post("/evaluate")
+async def evaluate():
     """
-    Re-compile DSPy module โดยใช้ feedback dataset
-    เรียกใช้เมื่อมีข้อมูล feedback เพียงพอ (เช่น > 20 records)
+    Evaluate VARK module on train dataset — Gemini judge per A/B rubric (0-10).
+    Returns score report with mean_total and per-criterion averages.
     """
-    global vark_module
+    import asyncio
+    from dspy_module import evaluate_testset, get_trainset, _next_eval_path
 
-    dataset_path = "feedback_dataset.jsonl"
-    if not os.path.exists(dataset_path):
-        raise HTTPException(status_code=400, detail="No feedback dataset found")
+    try:
+        trainset = get_trainset()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load train dataset: {e}")
 
-    # Load dataset
-    examples = []
-    with jsonlines.open(dataset_path) as reader:
-        for obj in reader:
-            if obj.get("liked"):
-                ex = dspy.Example(
-                    context=obj["context_snippet"],
-                    vark_style=json.dumps(obj["vark_style"]),
-                    learning_material=obj["learning_material"],
-                    youtube_queries=obj["youtube_queries"],
-                ).with_inputs("context", "vark_style")
-                examples.append(ex)
+    if not trainset:
+        raise HTTPException(status_code=400, detail="Train dataset is empty")
 
-    if len(examples) < 3:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Need at least 3 liked examples, got {len(examples)}"
+    module = vark_module
+    if module is None:
+        raise HTTPException(status_code=503, detail="AI module not initialized")
+
+    report_path = _next_eval_path("vark")
+    try:
+        report = await asyncio.to_thread(
+            evaluate_testset,
+            module,
+            trainset,
+            blind=False,
+            report_path=report_path,
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation error: {e}")
 
-    from dspy.teleprompt import BootstrapFewShot
-    from dspy_module import vark_metric
-
-    teleprompter = BootstrapFewShot(metric=vark_metric, max_bootstrapped_demos=3)
-    compiled     = teleprompter.compile(VARKModule(), trainset=examples)
-    compiled.save("vark_model.json")
-
-    vark_module = compiled
-    return {"message": f"Recompiled with {len(examples)} examples ✅"}
+    return {
+        "status": "ok",
+        "n": report.get("n"),
+        "mean_total": report.get("mean_total"),
+        "criterion_avgs": report.get("criterion_avgs"),
+        "judge": report.get("judge", {}).get("model"),
+        "report_path": report_path,
+        "report_md": report_path[:-5] + ".md",
+    }
 
 
 # ──────────────────────────────────────────────

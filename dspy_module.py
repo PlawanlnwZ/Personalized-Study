@@ -6,6 +6,7 @@ import sys
 import time
 from typing import Optional
 
+import httpx
 import requests
 
 try:
@@ -16,161 +17,302 @@ except ImportError:
 
 
 # ──────────────────────────────────────────────
-# 1. Configure DSPy with TYPHOON
+# 0. YouTube helpers (ใช้ร่วมกันระหว่าง main.py runtime API และ video eval)
 # ──────────────────────────────────────────────
+async def search_youtube(queries: list[str], max_per_query: int = 2) -> list[dict]:
+    """
+    ค้นหา YouTube videos
+    - ถ้ามี YOUTUBE_API_KEY → ใช้ YouTube Data API v3
+    - ถ้าไม่มี / API error / quota หมด → สร้าง search-URL cards แทน
+    """
+    api_key = os.environ.get("YOUTUBE_API_KEY")
+
+    def make_search_links(qs):
+        """Fallback: search-link cards ที่คลิกแล้วเปิด YouTube ได้เลย"""
+        cards = []
+        for q in qs[:5]:
+            q_enc = q.replace(" ", "+")
+            cards.append({
+                "video_id":       None,
+                "title":          q,
+                "channel":        "ค้นหาใน YouTube",
+                "thumbnail":      "",
+                "url":            f"https://www.youtube.com/results?search_query={q_enc}",
+                "embed_url":      "",
+                "is_search_link": True,
+            })
+        return cards
+
+    # ── ไม่มี key → fallback ทันที ─────────────────────────────
+    if not api_key:
+        return make_search_links(queries)
+
+    # ── มี key → เรียก YouTube Data API v3 ─────────────────────
+    results   = []
+    seen_ids  = set()
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        for query in queries[:7]:
+            try:
+                resp = await client.get(
+                    "https://www.googleapis.com/youtube/v3/search",
+                    params={
+                        "part":             "snippet",
+                        "q":                query,
+                        "type":             "video",
+                        "maxResults":       max_per_query,
+                        "key":              api_key,
+                        "relevanceLanguage":"th",
+                    },
+                )
+                data = resp.json()
+
+                # ── ตรวจจับ quota/error response จาก Google ────
+                if "error" in data:
+                    err_msg = data["error"].get("message", "unknown")
+                    print(f"YouTube API error: {err_msg} — falling back to search links")
+                    return make_search_links(queries)
+
+                for item in data.get("items", []):
+                    vid_id = item["id"].get("videoId")
+                    if not vid_id or vid_id in seen_ids:
+                        continue
+                    seen_ids.add(vid_id)
+                    snippet = item.get("snippet", {})
+                    results.append({
+                        "video_id":       vid_id,
+                        "title":          snippet.get("title", ""),
+                        "channel":        snippet.get("channelTitle", ""),
+                        "thumbnail":      snippet.get("thumbnails", {})
+                                                  .get("medium", {}).get("url", ""),
+                        "url":            f"https://www.youtube.com/watch?v={vid_id}",
+                        "embed_url":      f"https://www.youtube.com/embed/{vid_id}",
+                        "is_search_link": False,
+                    })
+            except Exception as e:
+                print(f"YouTube search error for '{query}': {e}")
+
+    # ── API ไม่ให้ผลลัพธ์เลย → fallback ─────────────────────────
+    if not results:
+        print("YouTube API returned no results — falling back to search links")
+        return make_search_links(queries)
+
+    return results
+
+
+def _fmt_count(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return str(n) if n else "?"
+
+
+async def _fetch_video_stats(video_ids: list[str]) -> dict:
+    """Batch-fetch viewCount and likeCount for up to 50 video IDs in one API call."""
+    api_key = os.environ.get("YOUTUBE_API_KEY")
+    if not api_key or not video_ids:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                params={"part": "statistics", "id": ",".join(video_ids[:50]), "key": api_key},
+            )
+            data = resp.json()
+            result = {}
+            for item in data.get("items", []):
+                stats = item.get("statistics", {})
+                result[item["id"]] = {
+                    "views": int(stats.get("viewCount", 0)),
+                    "likes": int(stats.get("likeCount", 0)),
+                }
+            return result
+    except Exception as e:
+        print(f"[video_stats] fetch error: {e}")
+        return {}
+
+
+def _fetch_transcript(video_id: str, max_chars: int = 2000) -> str:
+    """Fetch YouTube auto-captions via youtube-transcript-api. Returns '' on any failure.
+
+    รองรับทั้ง API ใหม่ (>=1.0: instance .fetch() → FetchedTranscript ของ snippet objects)
+    และ API เก่า (<1.0: classmethod .get_transcript() → list[dict])
+    """
+    langs = ["th", "en", "en-US", "en-GB"]
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        # ── API ใหม่ (>=1.0) ──
+        if hasattr(YouTubeTranscriptApi, "get_transcript"):
+            snippets = YouTubeTranscriptApi.get_transcript(video_id, languages=langs)
+            return " ".join(s["text"] for s in snippets)[:max_chars]
+        fetched = YouTubeTranscriptApi().fetch(video_id, languages=langs)
+        return " ".join(s.text for s in fetched)[:max_chars]
+    except Exception:
+        return ""
+
+
+# ──────────────────────────────────────────────
+# 1. Generator model slot — เสียบ AI ได้หลายตัวเพื่อเทียบผลลัพธ์ใน eval
+# ──────────────────────────────────────────────
+# "Slot" สำหรับเสียบ generator model ที่อยากเอามาเทียบกัน:
+#   - เพิ่ม entry เพื่อเทียบหลายตัว / ลบออกเหลือ 1 ตัวก็ได้ (add up or down to 1)
+#   - แต่ละ key = label ที่จะโชว์ใน report (เช่น "Typhoon --> 9.7")
+#   - แต่ละ value:
+#       model        : litellm model id (ใช้ prefix "openai/" สำหรับ endpoint แบบ OpenAI-compatible)
+#       api_base     : base URL ของ provider
+#       api_key_env  : ชื่อ env var ที่เก็บ API key ของ provider นั้น
+#       max_tokens / temperature : ตามต้องการ
+# ตัวที่ไม่มี API key ใน env จะถูก "ข้าม" อัตโนมัติตอน eval (ไม่ error ทั้ง run)
+GENERATOR_MODELS: dict[str, dict] = {
+    "Typhoon": {
+        "model": "openai/typhoon-v2.5-30b-a3b-instruct",
+        "api_base": "https://api.opentyphoon.ai/v1",
+        "api_key_env": "TYPHOON_API_KEY",
+        "max_tokens": 16384,   # Typhoon API hard cap
+        "temperature": 0.7,
+    },
+    # ── ตัวอย่างการเพิ่ม model อื่นเข้า slot (แก้/ลบได้) ──
+    # เรียกผ่าน OpenRouter: ตั้ง OPENROUTER_API_KEY ใน .env แล้ว uncomment
+    "GPTOSS": {
+        "model": "openai/gpt-oss-120b:free",
+        "api_base": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "max_tokens": 16384,
+        "temperature": 0.7,
+    },
+}
+
+# ★★ MODEL ที่เว็บใช้ตอน Generate — "คนเขียนโค้ด" แก้ตรงนี้ที่เดียว ★★
+# ต้องเป็น key ใน GENERATOR_MODELS ข้างบน (เช่น "Typhoon" หรือ "Qwen2.5")
+# (ค่านี้ยังใช้เป็น fallback label ใน eval report ด้วย)
+DEFAULT_GENERATOR = "GPTOSS"
+
+
+def build_generator_lm(label: str) -> dspy.LM:
+    """สร้าง dspy.LM จาก slot GENERATOR_MODELS ตาม label
+    raise ValueError ถ้า label ไม่มีใน slot หรือไม่มี API key ใน env
+    """
+    cfg = GENERATOR_MODELS.get(label)
+    if not cfg:
+        raise ValueError(
+            f"unknown generator '{label}' — มีใน slot: {list(GENERATOR_MODELS)}"
+        )
+    env = cfg["api_key_env"]
+    key = os.environ.get(env) or os.environ.get(env + " ")
+    if not key:
+        raise ValueError(f"{env} required for generator '{label}'")
+    return dspy.LM(
+        model=cfg["model"],
+        api_key=key.strip(),
+        api_base=cfg.get("api_base"),
+        max_tokens=cfg.get("max_tokens", 16384),
+        temperature=cfg.get("temperature", 0.7),
+        cache=False,
+    )
+
+
 def configure_lm(api_key: Optional[str] = None):
-    key = api_key or os.environ.get("TYPHOON_API_KEY")
+    """ตั้ง global generator LM ที่เว็บใช้ตอน Generate (study guide + quiz)
+
+    ★ จุดเดียวที่ "คนเขียนโค้ด" กำหนด model ของ runtime ★
+      → เปลี่ยน model ที่เว็บใช้ = แก้ค่า DEFAULT_GENERATOR ด้านบน
+        ให้ชี้ไป label ใดก็ได้ใน GENERATOR_MODELS (เช่น "Typhoon" / "Qwen2.5")
+      (ถ้าอยากใช้รุ่นใหม่ ให้เพิ่ม entry ใน GENERATOR_MODELS ก่อน แล้วตั้ง DEFAULT_GENERATOR)
+    api_key override ใช้กับ Typhoon (backward-compat กับ main.py startup)
+    """
+    cfg = GENERATOR_MODELS[DEFAULT_GENERATOR]
+    key = api_key or os.environ.get(cfg["api_key_env"])
     if not key:
         raise ValueError("API Key is required")
 
     lm = dspy.LM(
-        model="openai/typhoon-v2.5-30b-a3b-instruct",
+        model=cfg["model"],
         api_key=key,
-        api_base="https://api.opentyphoon.ai/v1",
-        # Typhoon API hard cap = 16384
-        max_tokens=16384,
-        temperature=0.7,
+        api_base=cfg["api_base"],
+        max_tokens=cfg["max_tokens"],
+        temperature=cfg["temperature"],
         cache=False,
     )
     dspy.settings.configure(lm=lm)
+    print(f"[runtime] generator model = {DEFAULT_GENERATOR} ({cfg['model']})")
     return lm
 
 
-# ──────────────────────────────────────────────
-# 2a. Signature: วิเคราะห์เนื้อหา (Stage 1)
-#     ให้ AI คิดก่อนว่าเนื้อหานี้คืออะไร จะสอนยังไงดี
-# ──────────────────────────────────────────────
-class ContentAnalyzer(dspy.Signature):
+def _gen_context(gen_lm):
+    """context manager สำหรับรัน generator ด้วย LM ที่ระบุ
+    (ถ้า gen_lm=None → ใช้ global LM เดิม)
     """
-    วิเคราะห์เนื้อหาที่รับมา และวางแผนการสอนที่เหมาะสมกับสไตล์ VARK
-    คิดอย่างละเอียดว่าเนื้อหามีแนวคิดอะไร ตัวอย่างอะไร และจะปรับให้เหมาะ VARK ได้อย่างไร
-    """
-    context: str = dspy.InputField(desc="เนื้อหาที่สกัดจาก PDF หรือเอกสาร")
-    vark_style: str = dspy.InputField(
-        desc='JSON ของโปรไฟล์ VARK เช่น {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
-    )
-    key_concepts: str = dspy.OutputField(
-        desc=(
-            "แนวคิดหลัก 5-10 ข้อที่ควรสอน พร้อมระดับความสำคัญ (JSON array) "
-            "ต้องครอบคลุม **ทุกประเด็นสำคัญใน context** — ห้ามตัดทิ้งแม้เป็นประเด็นย่อย "
-            "ถ้า context ยาวมีหลายหัวข้อ ให้แตกออกเป็นข้อย่อยให้ครบ "
-            "อย่าสรุปรวบให้เหลือน้อยเกินจริง"
-        )
-    )
-    teaching_strategy: str = dspy.OutputField(
-        desc=(
-            "กลยุทธ์การสอนที่เหมาะกับ VARK dominant: "
-            "V=เน้นภาพและโครงสร้าง, A=เน้นการเล่าเรื่อง, การฟัง"
-            "R=เน้นนิยามและ outline, K=เน้นขั้นตอนและแบบฝึกหัด "
-            "อธิบายว่าจะจัดโครงสร้างเนื้อหาอย่างไร"
-        )
-    )
-    difficulty_assessment: str = dspy.OutputField(
-        desc="ประเมินความยากของเนื้อหา (easy/medium/hard) และเหตุผล"
-    )
+    import contextlib
+    return dspy.context(lm=gen_lm) if gen_lm is not None else contextlib.nullcontext()
 
 
-# ──────────────────────────────────────────────
-# 2b. Signature หลัก: สร้างสื่อ (Stage 2)
-#     รับผลจาก Stage 1 มาด้วย ทำให้คิดต่อยอดได้ดีขึ้น
-# ──────────────────────────────────────────────
+#VARK PROMPT
 class VARKProjector(dspy.Signature):
-    """
-    รับเนื้อหา, โปรไฟล์ VARK, และแผนการสอนจาก Stage 1
-    สร้างสื่อการเรียนรู้ที่ปรับให้เหมาะกับสไตล์นั้น พร้อม Query สำหรับค้นหา YouTube
-    """
-    context: str = dspy.InputField(desc="เนื้อหาที่สกัดจาก PDF หรือเอกสาร (plain text)")
+    """Accepts raw text content and a VARK learning style profile, then generates a customized, 
+    style-optimized learning module using an internal, single-stage Chain-of-Thought analysis. 
+    Additionally, generates optimized search queries for retrieving relevant YouTube video resources."""
+
+    context: str = dspy.InputField(
+        desc="Raw text content extracted from PDFs, documents, or source materials (plain text)"
+    )
+
     vark_style: str = dspy.InputField(
-        desc='JSON string ของโปรไฟล์ VARK เช่น {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
+        desc='JSON string representing the learner\'s VARK profile, e.g., {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
     )
-    key_concepts: str = dspy.InputField(
-        desc="แนวคิดหลักที่วิเคราะห์แล้วจาก Stage 1 (JSON array)"
-    )
-    teaching_strategy: str = dspy.InputField(
-        desc="กลยุทธ์การสอนที่วางแผนแล้วจาก Stage 1"
-    )
+    
     learning_material: str = dspy.OutputField(
-        desc=(
-            "สื่อการเรียนรู้ในรูปแบบ Markdown ที่ปรับให้เหมาะกับสไตล์ VARK "
-            "**ภาษา:** ใช้ภาษาเดียวกับ context/PDF — ถ้า context เป็นภาษาไทย ต้องเขียนเนื้อหาทั้งหมดเป็นภาษาไทย "
-            "(ห้ามเปลี่ยนไปเป็นภาษาอังกฤษ) ยกเว้นศัพท์เฉพาะ/ตัวอย่างประโยคที่ต้องคงภาษาเดิมตามเนื้อหา. "
-            "**ความครบถ้วน (สำคัญสุด):** ต้องครอบคลุม **ทุกประเด็น** ใน context และทุกข้อใน key_concepts "
-            "ห้ามตัดประเด็นทิ้ง ห้ามรวบยอด — แต่ละหัวข้อใน context ต้องมีย่อหน้า/หัวข้อย่อยของตัวเอง "
-            "ความยาวต้องสเกลตาม context: ถ้า context สั้น (<500 คำ) → เนื้อหา ≥ 800 คำ; "
-            "context กลาง (500-2000 คำ) → เนื้อหา ≥ 1500 คำ; "
-            "context ยาว (>2000 คำ) → เนื้อหา ≥ 60% ของ context หรือ ≥ 2500 คำ (แล้วแต่อันไหนมากกว่า). "
-            "โครงสร้าง: 1) อธิบายแนวคิดหลัก (ทุกข้อใน key_concepts) 2) ตัวอย่างและการประยุกต์ใช้ 3) แบบฝึกหัดหรือสรุป "
-            "ปรับตาม VARK dominant อย่างเคร่งครัด — "
-            "V=ต้องมีตาราง Markdown (|col|col|) จริงๆ + ใช้โครงสร้างเปรียบเทียบ/จัดกลุ่ม/bullet hierarchy. "
-            "**ห้ามอ้างอิงรูปภาพในทุกรูปแบบเด็ดขาด** (ระบบไม่แสดงรูปแล้ว): "
-            "ห้ามมีข้อความที่บรรยาย/อ้างถึงรูปภาพในทุกตำแหน่ง (ย่อหน้า, หัวข้อ, cell ในตาราง, bullet, blockquote) — "
-            "รวมถึงคำขึ้นต้น 'ภาพ:', 'รูป:', 'image:', 'pic:', 'photo:', "
-            "และคำที่ขึ้นต้นด้วย 'ภาพ<...>' / 'รูป<...>' เช่น 'รูปหญิงคนเดียว', 'รูปแว่นตา', 'ภาพแผนผัง' (placeholder ที่ไม่มีรูปจริง). "
-            "ถ้าจะทำ matching exercise ห้ามจับคู่ 'รูป↔ประโยค' — ให้ใช้ 'คำ/วลี↔ประโยค' หรือ 'คุณลักษณะ↔ตัวอย่าง' แทน. "
-            "ถ้าต้องสื่อ visual ให้ใช้ Markdown table จริง, ASCII diagram (ใน code fence), "
-            "หรือ bullet เปรียบเทียบเชิงโครงสร้าง — ไม่ใช่บรรยายภาพที่ไม่มี;"
-            "A=ต้องเขียนในรูป story (เล่าเรื่อง) ที่มี narrator บรรยายเหตุการณ์/อธิบายแนวคิด "
-            "แล้วแทรก dialogue ของตัวละคร Aural เป็นจุดๆ ใช้คำ story/imagine/dialogue/เล่า/สนทนา. "
-            "**โครงสร้างบังคับสำหรับโหมด A:** "
-            "(1) ส่วนใหญ่ของเนื้อหา (>=70%) ต้องเป็น *ย่อหน้าบรรยาย/อธิบายแบบปกติ* (ไม่มี `>`) "
-            "เล่าฉาก, ปูบริบท, ขยายความแนวคิด, สรุปบทเรียน. "
-            "(2) Dialogue ใช้ blockquote โดยขึ้นต้นบล็อกด้วย `> Situation: <บรรยายฉากสั้นๆ>` "
-            "แล้วบรรทัดถัดมาต่อเป็นบทพูดในรูป `> ชื่อคนพูด: \"...\"` เช่น:\n"
-            "> Situation: ครูวันถามนักเรียนเรื่อง S-V Agreement\n"
-            "> ครูวัน: \"ทำไมเราพูดว่า He is happy แต่ They are happy ล่ะ?\"\n"
-            "> นักเรียน: \"ไม่แน่ใจครับ มันต่างกันยังไงครับ?\"\n"
-            "ตั้งชื่อตัวละคร (ครู, นักเรียน, ชื่อจริง ฯลฯ) ให้เหมาะกับบริบทของเนื้อหา "
-            "ใช้แทรกเป็นจุดๆ เฉพาะตอนที่ตัวละครพูด/ถามสำคัญ — เป็นไฮไลต์ ไม่ใช่เนื้อหาหลัก. "
-            "(3) **จำนวนบล็อก dialogue ต้องสเกลตามค่า A ใน vark_style:** "
-            "A >= 70 → ใส่ได้ 3–5 บล็อกในเนื้อหาทั้งหมด; "
-            "A 40–69 → ใส่ได้ 2–3 บล็อก; "
-            "A 20–39 → ใส่ได้แค่ 1–2 บล็อก เท่านั้น (ไม่งั้นจะกลบเนื้อหาส่วนอื่น); "
-            "A < 20 → ใส่แค่ 0–1 บล็อก. "
-            "ห้ามมี blockquote ติดต่อกันเกิน 2 บล็อก. "
-            "(4) **ห้ามใช้ `>` เด็ดขาด** กับ: heading (เช่น `> **Practice Sentences:**` ผิด), "
-            "คำอธิบายทั่วไป, tip, note, สรุป, รายการตัวอย่างประโยค, bullet list — "
-            "สิ่งเหล่านี้ต้องเขียนเป็นย่อหน้า/heading/list ธรรมดา (ไม่มี `>`). "
-            "`>` มีไว้สำหรับ Situation+dialogue เท่านั้น. "
-            "บทพูดในแต่ละ blockquote กระชับ 1–3 บรรทัด; "
-            "R=อธิบายเนื้อหาเป็นข้อความที่จัด format ดี (heading, bullet, numbered list, ตาราง, definition list, นิยามคำสำคัญ) "
-            "ให้ครบและละเอียด — ห้ามสั่งให้ผู้เรียน 'สรุปด้วยภาษาตัวเอง' หรือ 'paraphrase' หรือ 'เขียนสรุปของตัวเอง' "
-            "ส่วนแบบฝึกหัด ให้ใช้รูปแบบ recall/short-answer/fill-in-blank พร้อมเฉลย และเสริม 'แนวทางการอ่าน/จดโน้ต' "
-            "ใช้คำ definition/outline/note/นิยาม/หลักการ/ข้อสังเกต/แนวทาง/ดังนี้; "
-            "K=ต้องมี step-by-step และ exercise ให้ผู้เรียนลงมือทำ "
-            "และใช้คำ try/fill in/match/complete/apply/exercise/practice/ขั้นตอน/ลองทำ/จับคู่/เติม/ฝึก. "
-            "**สำคัญ — รูปแบบเฉลยของแบบฝึกหัด (เคร่งครัด):**\n"
-            "ใส่บล็อกเฉลย **เฉพาะเมื่อโจทย์ยังไม่ได้เฉลยให้เห็น**:\n"
-            "ตารางอธิบายแนวคิด/นิยาม/ตัวอย่าง ที่มีตัวอย่างประโยคครบในตารางอยู่แล้ว → **ห้ามใส่** ```เฉลย``` ต่อท้าย (ซ้ำซ้อน)\n"
-            "**โจทย์/แบบฝึกหัด/กิจกรรมทุกประเภทที่นักเรียนต้องคิดเอง → ต้องใส่ ```เฉลย``` เสมอ** ครอบคลุม: "
-            "fill-in-blank, find-the-mistake, match/จับคู่, ordering/จัดเรียงลำดับ/sort, short-answer, "
-            "true-false, multiple-choice, scenario/case-study, transform/แปลงประโยค, แต่งประโยค. "
-            "ถ้ามีคำว่า 'กิจกรรม', 'แบบฝึกหัด', 'ลองทำ', 'จัดเรียง', 'จับคู่', 'เติม', 'แก้ไข', 'เลือก' ในหัวข้อ → ต้องมีบล็อกเฉลยตามหลัง (ไม่มีข้อยกเว้น)\n"
-            "รูปแบบ fence ที่ถูกต้อง** (ไม่งั้น renderer จะไม่จับ):\n"
-            "ต้องเขียน ```เฉลย ติดกันบรรทัดเดียว — ห้ามขึ้นบรรทัดใหม่ระหว่าง ``` กับ เฉลย\n"
-            "บล็อกต้องเริ่มต้นที่ column 0 (ขอบซ้ายสุด) — ห้าม indent เข้าไปในรายการย่อย\n"
-            "ตัวอย่างที่ถูก:\n"
-            "```เฉลย\n"
-            "<คำตอบและคำอธิบาย>\n"
-            "```\n"
-            "**โจทย์ต้องมีช่องว่างให้เติม/แก้จริง** — ห้ามแสดงคำตอบในตัวโจทย์:\n"
-            "Fill-in-blank: ใช้ ___ หรือ ____ แทนคำตอบในประโยค เช่น 'My glasses ____ on the table.'\n"
-            "Find-the-mistake: เขียนเป็น 'The manager ___ busy. (เดิม: are)' แทนการแสดงประโยคที่ถูกแล้ว — ให้นักเรียนเติมรูปที่ถูก แล้วใส่คำตอบใน ```เฉลย``` แยก\n"
-            "ห้ามแสดงประโยคถูก/ผิดทั้งคู่ในส่วนโจทย์ — เก็บประโยคที่ถูกไว้ในบล็อกเฉลยเท่านั้น\n"
-            "ห้ามเขียนเฉลยแบบเปิดเผยในย่อหน้าธรรมดา (เช่น '**เฉลย:** ...') — ต้องอยู่ใน ```เฉลย ... ``` เสมอ"
-        )
-    )
-    youtube_queries: str = dspy.OutputField(
-        desc=(
-            "ตอบด้วย JSON array เท่านั้น ห้ามมี text อื่น ห้ามมี markdown fences "
-            '3-5 queries เช่น ["if-else C tutorial", "คำสั่ง if-else ภาษา C"]'
-        )
-    )
-    image_queries: str = dspy.OutputField(
-        desc=(
-            "JSON array เท่านั้น สร้างเฉพาะ dominant=V หรือ มี V เป็น secondary "
-            'เช่น [{"q":"if-else flowchart","imgType":"photo","imgSize":"large","rights":"cc_publicdomain","altDescription":"แผนผัง"}] '
-            "ถ้าไม่ใช่ V ตอบ: []"
-        )
+        desc="""Generate a comprehensive learning module based on the provided context/PDF by strictly adhering to the following rules and absolute constraints:
+    1. Language Consistency:
+    - Use the same language as the context/PDF. If the context is in English, the entire output must be written in English. Maintain technical terms or source examples in their original language as required by the context.
+
+    2. Completeness and Length (Highest Priority):
+    - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information. Each distinct topic in the context must have its own dedicated paragraph or subsection.
+    - The length of the generated output must scale according to the size of the provided context:
+    * Short context (<500 words) -> Output must be >= 800 words.
+    * Medium context (500–2,000 words) -> Output must be >= 1,500 words.
+    * Long context (>2,000 words) -> Output must be >= 60% of the context length or >= 2,500 words (whichever is greater).
+
+    3. Mathematical Formulations:
+    - Use \\( ... \\) for inline equations and \\[ ... \\] for display equations.
+    - **Absolute Rule:** The opening delimiter, the mathematical formula, and the closing delimiter must all reside on the exact same line. For example: \\[ z = \\frac{401.8 - 393.3}{393.3} \\approx 0.0216 \\]
+    - Do not insert any line breaks between the delimiters and the formula, as this breaks KaTeX rendering. For multiple equations, separate them by assigning exactly one fully self-contained equation per line.
+
+    4. Structure and Prohibited Learning-Style Labels:
+    - The content must cater to all learning dimensions by seamlessly embedding four distinct components. You must never omit any of these components.
+    - **Strict Prohibition of Labels:** Do not include words like 'VARK', 'Visual', 'Auditory', 'Read/Write', 'Kinesthetic', 'Mode', 'For learners who prefer...', or tags like '(V)/(A)/(R)/(K)' anywhere in the output—whether in headings, body paragraphs, tables, bullets, or blockquotes. These terms are internal instructions only.
+    - **Structural Organization:** Headings must be named naturally based on the actual concepts and topics of the subject matter (e.g., chapter names or conceptual subheadings). Within these natural sections, establish a unified baseline of knowledge and embed the following four components naturally into the text flow:
+    (a) Visual Elements: Markdown tables, ASCII diagrams, or comparative groupings.
+    (b) Read/Write Elements: Textual explanations, well-formatted definitions, and structural summaries with key terms emphasized.
+    (c) Auditory/Conversational Elements: Narrative prose integrated with occasional character dialogues.
+    (d) Kinesthetic Elements: Step-by-step activities, practical exercises, and lessons learned.
+    - Conclude the entire document with a dedicated **Cheat Sheet** section. This section must condense all major takeaways and core concepts from the entire module into highly scannable bullet points or summary tables for rapid pre-exam review.
+
+    5. Component Weights and Specific Definitions based on vark_style:
+    - Adjust the depth of each component based on the dominant trait in the provided vark_style. The component corresponding to the dominant trait (e.g., dominant=V -> Visual element) must be the most detailed, extensive, and serve as the core anchor of the module. Other components must still be fully realized according to their definitions but expressed more concisely.
+    - Concrete requirements for each component:
+    * Visual Component (V): You must include functional Markdown tables (|col|col|) and utilize clear comparative or hierarchical bullet structures. **Absolute Rule: Never reference or simulate images in any form.** Do not include any placeholder text or descriptions referring to non-existent imagery, diagrams, or graphics (e.g., avoid prefixes like 'Image:', 'Figure:', 'Diagram of...', 'Photo of...'). If you need to convey visual relationships, do so exclusively using actual Markdown tables, structural lists, or raw ASCII diagrams wrapped in code fences.
+    * Read/Write Component (R): Provide clear textual explanations using structured Markdown formats (headings, bullet points, numbered lists, and definition lists). You must highlight critical insights by **bolding key terms** and including bulleted summaries. Do not instruct learners to 'summarize in their own words' or 'paraphrase'. For exercises, use active recall, short-answer, or fill-in-the-blank formats with answers included. Supplement the text with reading or note-taking guidelines using terms such as definition, outline, note, principle, or observation.
+    * Auditory/Conversational Component (A): Frame parts of the explanation as a story featuring a narrator who guides the user through the concepts, interspersed with targeted character dialogue (e.g., between a teacher and a student, or named personas). The structural constraints are:
+        (1) At least 70% of this component must consist of standard narrative paragraphs (without using the `>` blockquote symbol) to establish context, explain theories, and elaborate on concepts.
+        (2) Dialogue must be enclosed in a blockquote, beginning exactly with a short situational description, followed by the character lines on subsequent rows. For example:
+            > Situation: The instructor asks the class about Subject-Verb Agreement.
+            > Instructor: "Why do we say 'He is happy' but 'They are happy'?"
+            > Student: "I'm not entirely sure. What is the core rule behind that?"
+        (3) Keep individual dialogue lines concise (1–3 lines per turn). The total number of dialogue blocks must scale with the 'A' score in vark_style: if A >= 70, include 3–5 blocks; if A is 40–69, include 2–3 blocks; if A is 20–39, include 1–2 blocks; if A < 20, include exactly 1 block. Do not place more than 2 blockquotes consecutively.
+        (4) **Never use the `>` symbol** for headings, general text, tips, notes, generic summaries, example sentence lists, or bullet points. The `>` symbol is strictly reserved for the Situation+Dialogue format.
+    * Kinesthetic Component (K): Include a hands-on, step-by-step activity (e.g., an experiment, a simulation scenario to solve, a bug-hunting exercise, or real-data calculations) alongside an interactive practice section. **Every kinesthetic activity must conclude with a explicitly labeled "Lesson Learnt" section** that summarizes the practical takeaway or operational insight gained from completing the task.
+
+    6. Exercise Formats and Answer Key Constraints:
+    - **Absolute Rule: Matching exercises of any kind are strictly prohibited.** Do not create matching tables, column-matching tasks, or term-to-definition matching. Instead, utilize alternative formats such as fill-in-the-blanks, short-answers, sequence ordering/sorting, text completion, or situational scenarios.
+    - **Strict Answer Key Formatting:** 
+    * Provide an answer block only when the solution is not already explicitly visible in the preceding text (e.g., do not add an answer block to an explanatory table that already contains full examples). However, for any dedicated exercise, quiz, scenario, or interactive task where the student must deduce the answer, **you must provide an answer key immediately following the task without exception.**
+    * The answer block must be strictly delimited by the word 'ans' enclosed in single quotes. The delimiter row must stand completely alone on its own line, contain no other text, and start at column 0 (left-aligned without indentation or markdown code fences).
+    * The precise format must look exactly like this:
+        'ans'
+        <Insert correct answers and explanations here>
+        'ans'
+    ***The question itself must hide the solution.** For fill-in-the-blank questions, use underscores (e.g., 'My glasses ____ on the table.'). For error-correction, present the problem clearly without revealing the answer in the prompt text (e.g., use 'The manager ___ busy. (Original: are)' instead of showing the corrected sentence directly in the question). Keep the correct, final versions or solutions strictly inside the 'ans' block. Never expose answers in standard body paragraphs using phrases like '**Answer:** ...'."""
     )
 
 
@@ -180,42 +322,19 @@ class VARKProjector(dspy.Signature):
 
 class VARKModule(dspy.Module):
     """
-    Runtime module — Chain of Thought 2 stages
-
-    Pipeline:
-      Stage 1: ChainOfThought วิเคราะห์เนื้อหาและวางแผนการสอน
-      Stage 2: ChainOfThought สร้างสื่อโดยใช้แผนจาก Stage 1
+    Runtime module — single stage (ChainOfThought)
+      สร้างสื่อการเรียนรู้จาก context + vark_style โดยตรง
+      (CoT ทำให้ model วิเคราะห์/วางแผนเองในตัว ไม่ต้องมี analyze stage แยก)
     """
     def __init__(self):
         super().__init__()
-        # Stage 1: วิเคราะห์เนื้อหา + วางแผน (ใช้ CoT เพื่อให้ model คิดอย่างเป็นระบบ)
-        self.analyze = dspy.ChainOfThought(ContentAnalyzer)
-        # Stage 2: สร้างสื่อจากแผนที่วางไว้ (CoT ช่วยให้ output สอดคล้องกับ strategy)
         self.generate = dspy.ChainOfThought(VARKProjector)
 
     def forward(self, context: str, vark_style: str) -> dspy.Prediction:
         ctx_chars = len(context or "")
         ctx_words = len((context or "").split())
 
-        # ── Stage 1: วิเคราะห์และวางแผน ──
-        analysis = self.analyze(context=context, vark_style=vark_style)
-
-        try:
-            kc_count = len(json.loads(analysis.key_concepts))
-        except Exception:
-            kc_count = -1
-        print(
-            f"[VARKModule] Stage1 done | ctx={ctx_chars} chars / {ctx_words} words "
-            f"| key_concepts={kc_count} items"
-        )
-
-        # ── Stage 2: สร้างสื่อโดยอิงจากแผน ──
-        draft = self.generate(
-            context=context,
-            vark_style=vark_style,
-            key_concepts=analysis.key_concepts,
-            teaching_strategy=analysis.teaching_strategy,
-        )
+        draft = self.generate(context=context, vark_style=vark_style)
 
         mat = draft.learning_material or ""
         mat_chars = len(mat)
@@ -241,43 +360,75 @@ class VARKModule(dspy.Module):
         warn = ("  ⚠️ " + "; ".join(warns)) if warns else ""
 
         print(
-            f"[VARKModule] Stage2 done | material={mat_chars} chars "
-            f"| char_ratio={char_ratio:.2f}x context | fences={fence_count}{warn}"
+            f"[VARKModule] done | ctx={ctx_chars} chars / {ctx_words} words "
+            f"| material={mat_chars} chars | char_ratio={char_ratio:.2f}x context "
+            f"| fences={fence_count}{warn}"
         )
+        # ── print ผลลัพธ์ที่ generate ออกมา ──
+        print("─" * 70)
+        print("[VARKModule] learning_material:\n")
+        print(mat)
+        print("─" * 70)
 
         return dspy.Prediction(
             learning_material=draft.learning_material,
-            youtube_queries=draft.youtube_queries,
-            image_queries=draft.image_queries,
-            # metadata จาก reasoning chain (ใช้ debug/logging)
-            key_concepts=analysis.key_concepts,
-            teaching_strategy=analysis.teaching_strategy,
         )
 
 
-# ──────────────────────────────────────────────
-# 2e. Signature: Quiz Generator
-# ──────────────────────────────────────────────
+#QUIZ PROMPT
 class QuizGenerator(dspy.Signature):
-    """สร้างแบบทดสอบ MCQ จากเนื้อหาเรียน ตามสไตล์ VARK และระดับความยาก"""
+    """Generate an MCQ quiz from the learning material, following the VARK style."""
     learning_material: str = dspy.InputField(desc="Markdown learning material")
     vark_style: str        = dspy.InputField(
-        desc='JSON เช่น {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
+        desc='JSON e.g. {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
     )
-    difficulty: str        = dspy.InputField(desc="easy / medium / hard")
-    count: int             = dspy.InputField(desc="จำนวนข้อที่ต้องสร้าง")
+    count: int             = dspy.InputField(desc="Number of questions to generate (max 10)")
     questions: str         = dspy.OutputField(
-        desc=(
-            "ตอบ JSON array เท่านั้น ห้ามมี markdown fences หรือข้อความอื่น "
-            "แต่ละข้อ: "
-            '{"q":"...","options":{"A":"..","B":"..","C":"..","D":".."},'
-            '"answer":"A|B|C|D","vark":"V|A|R|K","diff":"easy|medium|hard",'
-            '"explanation":"1–2 ประโยค"}. '
-            "ปรับคำถามตาม dominant VARK: "
-            "V=ตาราง/แผนภาพ/เปรียบเทียบ, A=story/dialogue, "
-            "R=นิยาม/ขั้นตอน/คำศัพท์, K=apply/debug/scenario. "
-            "ภาษาตามเนื้อหา (ไทยถ้าเนื้อหาเป็นไทย)"
-        )
+        desc=r"""An MCQ quiz as a JSON array — generate exactly `count` questions (max 10).
+    **Output format (strict):** Respond with a JSON array ONLY. No markdown fences (```), no leading/trailing text or explanation, no trailing comma. It must be directly parseable by JSON.parse.
+    **Format it to be readable (pretty-print):** indent 2 spaces, each object / each key on its own line — do not cram everything onto one line (it must still be 100% valid JSON).
+    Each item is an object containing every key: {"q":"<question>","options":{"A":"..","B":"..","C":"..","D":".."},"answer":"A|B|C|D","vark":"V|A|R|K","explanation":"1–2 sentences"}
+    Example of the desired format (blank line + indentation like this):
+    [
+      {
+        "q": "...",
+        "options": {
+          "A": "...",
+          "B": "...",
+          "C": "...",
+          "D": "..."
+        },
+        "answer": "B",
+        "vark": "R",
+        "explanation": "..."
+      }
+    ]
+
+    **Completeness & relevance:**
+    1) Every question must be answerable from `learning_material` ALONE — do not rely on knowledge outside the lesson or ask about things not in the content.
+    2) Questions must capture the **key points / main concepts** of the lesson — do not ask about trivial details, minor numbers, or unimportant wording.
+    3) Each question must be clear and unambiguous, and **do not ask about the same point more than once** — spread them to cover multiple topics in the content.
+
+    **Adjust the question style to the dominant VARK trait in `vark_style`**:
+    V (Visual) = based on tables / comparative structures / groupings / hierarchies, e.g. "From the following table, which option..." (describe the data as text; do not reference images that do not exist);
+    A (Auditory) = based on dialogue / narrative scenarios / listening, e.g. "In the dialogue, the teacher says... — what does it mean?";
+    R (Read/Write) = based on written definitions / terminology / principles / ordered steps, e.g. "Which of the following is the correct definition of...?";
+    K (Kinesthetic) = based on hands-on doing / problem solving / real scenarios / bug finding, e.g. "If you want to..., which step should you take?".
+    **Do not create matching-type questions of any kind.**
+
+    **Choice quality (4 options A–D):**
+    4) The distractors (the 3 wrong options) must be reasonable, believable, and close to the real answer — they must not be so obviously wrong that the answer can be guessed instantly.
+    5) All 4 options must be genuinely distinct, in both wording and meaning — no duplicate / synonymous options.
+    6) The options must be similar in length (do not let the correct one be noticeably longer / more detailed) and **do not use shortcut options like "All of the above / None of the above"**.
+
+    **Answer-key correctness:**
+    7) `answer` (the letter A/B/C/D) must match the option that is correct per the actual content, for every question.
+    8) `explanation` must explain reasoning consistent with the answer, concise, 1–2 sentences (why that option is correct and/or why the others are wrong).
+
+    **Format & language:**
+    9) The JSON must be valid and every item must include all keys (q, options{A,B,C,D}, answer, vark, explanation).
+    10) Each item's `vark` tag must match the style the question actually uses, and **the language must match `learning_material`** (Thai content → questions/options/explanations entirely in Thai; English content → English; except technical terms / code, which keep their original language).
+    11) **Mathematical formulas (KaTeX):** if a question/option/explanation contains an equation, write inline with `\\( ... \\)` and display with `\\[ ... \\]` — because the formula lives inside a JSON string, you **must always escape the backslash as two backslashes** (write `\\(`, `\\)`, `\\[`, `\\]`, `\\frac`, `\\times`, `\\approx`, etc.) so the JSON stays valid, and after JSON.parse a single backslash remains for KaTeX to render. **The entire equation must be in one string / on one line** — do not break to a new line in the middle of a formula, e.g. `"explanation": "Derived from \\( z = \\frac{v}{c} \\approx 0.0216 \\), therefore we conclude..."`."""
     )
 
 
@@ -288,40 +439,52 @@ class QuizModule(dspy.Module):
         self.generate = dspy.ChainOfThought(QuizGenerator)
 
     def forward(self, learning_material: str, vark_style: str,
-                difficulty: str, count: int) -> dspy.Prediction:
+                count: int = 10) -> dspy.Prediction:
+        # cap จำนวนข้อไว้ที่สูงสุด 10 ข้อ
+        count = max(1, min(int(count), 10))
         return self.generate(
             learning_material=learning_material,
             vark_style=vark_style,
-            difficulty=difficulty,
             count=count,
         )
 
 
-# ──────────────────────────────────────────────
-# 2f. Signature: Video VARK Classifier
-# ──────────────────────────────────────────────
+#VIDEO PROMPT
 class VideoVARKClassifier(dspy.Signature):
-    """จัดประเภท YouTube video ตามสไตล์ VARK + subtopics
+    """Classify a YouTube video by VARK style + subtopics.
 
-    Page mapping (จับคู่กับหน้า PDF) ไม่ทำในขั้นนี้ —
-    แยกเป็น runtime step ที่รับ PDF จริงมาเทียบกับผลลัพธ์นี้
+    Page mapping (matching to PDF pages) is NOT done at this stage —
+    it is a separate runtime step that takes the actual PDF and compares it against this result.
     """
-    video_title: str       = dspy.InputField(desc="ชื่อคลิป")
-    video_channel: str     = dspy.InputField(desc="ชื่อช่อง")
+    video_title: str       = dspy.InputField(desc="Video title")
+    video_channel: str     = dspy.InputField(desc="Channel name")
     video_metadata: str    = dspy.InputField(
-        desc="description / tags / categories ของคลิป (รวมเป็น text)"
+        desc="The video's description / tags / categories (combined into text)"
     )
     vark_weight_desc: str  = dspy.InputField(
-        desc='โปรไฟล์ VARK ของผู้เรียน เช่น "V 60%, K 30%, R 10%"'
+        desc='The learner\'s VARK profile, e.g. "V 60%, K 30%, R 10%"'
     )
     classification: str    = dspy.OutputField(
-        desc=(
-            "ตอบ JSON เท่านั้น: "
-            '{"vark":["V","K"],"subtopics":["..","..."]}. '
-            "vark = 1–4 styles ที่ตรงกับเนื้อหาคลิปจริง "
-            "(V=diagram/animation, A=lecture/talk, R=text/code, K=hands-on/demo). "
-            "subtopics = 2–4 keywords ≤16 chars (ไทยถ้าคลิปเป็นไทย)."
-        )
+        desc="""The video classification as a single JSON object.
+    **Output format (strict):** Respond with a JSON object ONLY. No markdown fences (```), no leading/trailing text or explanation, no trailing comma. It must be directly parseable by JSON.parse.
+    schema: {"vark":["V","K"],"subtopics":["..",".."]}
+    example: {"vark":["V","R"],"subtopics":["if-else","loop","function"]}
+
+    **Assigning `vark` (an array of the 1–4 styles that are "actually present" in the video):**
+    Judge mainly from video_title / video_channel / video_metadata, then select only the modalities the video's content actually has —
+    V (Visual) = has diagrams/animation/slides/graphics/illustrations on screen;
+    A (Auditory) = has narration/speaking/lecture/talk;
+    R (Read/Write) = has on-screen text/code/documents to read;
+    K (Kinesthetic) = has hands-on doing/demo/walkthrough/following along step by step.
+    1) You must include **every modality that actually appears** — do not miss any (e.g. a tutorial video with a demo must include all the relevant styles, not just one).
+    2) You must **not include a style that is not in the video** — do not guess / no false positives (e.g. a video with no actual demo must not include K).
+    3) Decide each of V/A/R/K strictly per the definitions above.
+    Note: `vark_weight_desc` (the learner profile) is for supplementary reference only — assign vark based on the "actual video content", not on the learner's weights.
+
+    **Setting `subtopics` (an array of keywords):**
+    4) Must reflect the actual content/topics of the video (extracted from title/metadata), not vague generic words.
+    5) 2–4 keywords.
+    6) Each keyword short, ≤16 characters, and **the language matches the video** (Thai video → Thai keywords, English video → English; technical terms / command names may keep their original language)."""
     )
 
 
@@ -335,216 +498,256 @@ class VideoClassifierModule(dspy.Module):
         return self.classify(**kwargs)
 
 
+# VIDEO QUERY PROMPT — สร้าง YouTube search queries จากเนื้อหา PDF
+class VideoQueryGenerator(dspy.Signature):
+    """Read the content from a PDF and generate search queries for finding YouTube
+    study videos that match the content."""
+    pdf_content: str     = dspy.InputField(desc="Content extracted from the PDF (plain text)")
+    youtube_queries: str = dspy.OutputField(
+        desc='Respond with a JSON array ONLY, no other text, no markdown fences. '
+             '3-5 queries, e.g. ["if-else C tutorial", "if-else statement in C"] '
+             'The language should match the content (Thai if the content is Thai).'
+    )
+
+
+class VideoQueryModule(dspy.Module):
+    """Runtime module — สร้าง YouTube search queries จากเนื้อหา PDF (ChainOfThought)"""
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(VideoQueryGenerator)
+
+    def forward(self, pdf_content: str) -> dspy.Prediction:
+        return self.generate(pdf_content=(pdf_content or "")[:6000])
+
+
+# VIDEO RELEVANCE PROMPT — กรองวิดีโอตามความเกี่ยวข้อง + จัด VARK รายคลิป
+class VideoRelevanceJudge(dspy.Signature):
+    """Look at a list of YouTube videos (with transcripts) and select only the clips
+    that match the topic the learner is currently studying, then classify the VARK of each clip that passes."""
+    topic: str                   = dspy.InputField(
+        desc="The topic/content the learner is currently studying"
+    )
+    videos_with_transcripts: str = dspy.InputField(
+        desc="A numbered list of videos (1., 2., ...) with title/channel/views/transcript"
+    )
+    relevant_indices: str        = dspy.OutputField(
+        desc='A JSON array of the sequence numbers of clips that match the topic (select up to 10), '
+             'e.g. [1,3,4]. Respond with JSON ONLY, no other text.'
+    )
+    vark_per_video: str          = dspy.OutputField(
+        desc='A JSON object mapping sequence number→VARK styles, e.g. {"1":"V","3":"VK"} '
+             '(V=diagram/animation, A=lecture/talk, R=text/code, K=hands-on/demo) '
+             'Respond with JSON ONLY, no other text.'
+    )
+
+
+class VideoRelevanceModule(dspy.Module):
+    """Runtime module — กรองวิดีโอตามความเกี่ยวข้อง + จัด VARK (ChainOfThought)"""
+    def __init__(self):
+        super().__init__()
+        self.judge = dspy.ChainOfThought(VideoRelevanceJudge)
+
+    def forward(self, topic: str, videos_with_transcripts: str) -> dspy.Prediction:
+        return self.judge(
+            topic=topic,
+            videos_with_transcripts=videos_with_transcripts,
+        )
+
+
 import re as _re
 
-# ──────────────────────────────────────────────
-# 4b. LLM-as-Judge (Gemini + GPT-OSS) — Primary metric
-# ──────────────────────────────────────────────
-#
-# แนวทาง: ใช้ LLM ตัวอื่นเป็น judge ประเมิน output ของ VARKModule
-# - ส่ง (context, vark_style, learning_material) ให้ judge
-# - judge คืนคะแนน 0/1/2 ตาม rubric
-# - ใช้ 2 judges จาก 2 provider เพื่อลด self-preference & individual bias:
-#     Judge A: Gemini 3.1 flash lite   ผ่าน Google AI Studio (GEMINI_API_KEY)
-#     Judge B: GPT-OSS                 ผ่าน OpenRouter        (GPTOSS_API_KEY)
-# - คะแนนสุดท้าย = ค่าเฉลี่ยของ judges ที่ parse สำเร็จ / 2.0  (0.0–1.0)
-# - ใช้เป็น metric ทั้งใน BootstrapFewShot (compile) และ evaluate_testset
-#
-# Bias ที่ควรระวัง
-#   - Verbosity bias: judges ชอบคำตอบยาว → เราจำกัด material ที่ส่งไปเป็น 5000 chars
-#   - Position bias: ไม่เกี่ยว เพราะไม่มี pairwise
-#   - Self-preference: ลดด้วยการใช้ 2 judges จาก provider ต่างกัน (Google + OpenAI)
-# ──────────────────────────────────────────────
-
-# Judge A: Gemini 3.1 flash lite — Google AI Studio (key = GEMINI_API_KEY)
-# Judge B: GPT-OSS                — OpenRouter        (key = GPTOSS_API_KEY)
+# Judge: Gemini flash lite — Google AI Studio (key = GEMINI_API_KEY)
 JUDGE_MODEL_A = os.environ.get("JUDGE_MODEL_A", "gemini/gemini-3.1-flash-lite")
-JUDGE_MODEL_B = os.environ.get("JUDGE_MODEL_B", "openrouter/openai/gpt-oss-20b")
+
+# เกณฑ์รายข้อ (ตัด sub-sub items ออกแล้ว — เหลือ A.1–A.4, B.1–B.5)
+VARK_CRITERIA = ["A.1", "A.2", "A.3", "A.4", "B.1", "B.2", "B.3", "B.4", "B.5"]
+QUIZ_CRITERIA = [f"C.{i}" for i in range(1, 11)]
+VIDEO_CRITERIA = [f"D.{i}" for i in range(1, 9)]  # D.1–D.8 (pipeline: query + relevance)
 
 
 def _judge_label(model: str) -> str:
     """ดึง short friendly label จากชื่อ model สำหรับ log
-
-    gemini/gemini-3.1-flash-lite      → 'Gemini'
-    openrouter/openai/gpt-oss-20b     → 'GPT-OSS'
+    gemini/gemini-3.1-flash-lite → 'Gemini'
     """
     m = model.lower()
     if "gemini" in m:
         return "Gemini"
-    if "gpt-oss" in m or "gpt_oss" in m:
-        return "GPT-OSS"
     if "gpt" in m:
         return "GPT"
     return model.split("/")[-1]
 
-_JUDGES: Optional[tuple[dspy.LM, dspy.LM]] = None
+
+_JUDGE: Optional[dspy.LM] = None
 
 
-def configure_judges(
+def configure_judge(
     gemini_key: Optional[str] = None,
-    gptoss_key: Optional[str] = None,
-    model_a: Optional[str] = None,
-    model_b: Optional[str] = None,
-) -> tuple[dspy.LM, dspy.LM]:
-    """สร้าง 2 judge LMs จาก 2 provider ต่างกัน — cache ใน _JUDGES สำหรับ reuse
-      Judge A (Gemini)  ← Google AI Studio,  key=GEMINI_API_KEY  (.env)
-      Judge B (GPT-OSS) ← OpenRouter,        key=GPTOSS_API_KEY  (.env)
+    model: Optional[str] = None,
+) -> dspy.LM:
+    """สร้าง Gemini judge LM ตัวเดียว — cache ใน _JUDGE สำหรับ reuse
+      key = GEMINI_API_KEY (.env)
     """
-    g_key = gemini_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY ")
-    o_key = gptoss_key or os.environ.get("GPTOSS_API_KEY")
-
+    g_key = (
+        gemini_key
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY ")
+    )
     if not g_key:
-        raise ValueError("GEMINI_API_KEY required for Judge A (Google AI Studio)")
-    if not o_key:
-        raise ValueError("GPTOSS_API_KEY required for Judge B (OpenRouter)")
-
-    ma = model_a or JUDGE_MODEL_A
-    mb = model_b or JUDGE_MODEL_B
-
-    # Judge A: Google AI Studio — LiteLLM ใช้ prefix gemini/...  ไม่ต้องตั้ง api_base
-    judge_a = dspy.LM(
-        model=ma,
+        raise ValueError("GEMINI_API_KEY required for judge (Google AI Studio)")
+    return dspy.LM(
+        model=model or JUDGE_MODEL_A,
         api_key=g_key.strip(),
-        max_tokens=400,
+        # scores + feedback (รีวิวรวมเป็น string เดียว) — เผื่อ output ยาวพอ
+        max_tokens=2000,
         temperature=0.0,
         cache=False,
     )
-    # Judge B: OpenRouter — ต้องตั้ง api_base ให้ชี้ openrouter
-    # max_tokens 8000: GPT-OSS chain-of-thought reasoning ยาว โดยเฉพาะ Quiz judge
-    # ที่ rubric มี 3 primary + secondary criteria (เคย truncate ที่ 3000)
-    judge_b = dspy.LM(
-        model=mb,
-        api_key=o_key.strip(),
-        api_base="https://openrouter.ai/api/v1",
-        max_tokens=8000,
-        temperature=0.0,
-        cache=False,
-    )
-    return judge_a, judge_b
 
 
-def _get_judges() -> tuple[dspy.LM, dspy.LM]:
-    global _JUDGES
-    if _JUDGES is None:
-        _JUDGES = configure_judges()
-    return _JUDGES
+def _get_judge() -> dspy.LM:
+    global _JUDGE
+    if _JUDGE is None:
+        _JUDGE = configure_judge()
+    return _JUDGE
 
-# report คู่
-# Gemini คนละ version for vid
-# transcript
+
+def _parse_criteria_scores(text, criteria: list[str]):
+    """parse judge JSON output → per-criterion score dict (แต่ละข้อ 0–10)
+    รองรับ key เกิน/ขาด — ขาด = 0; ค่าที่ไม่ใช่เลข = 0; clamp ให้อยู่ใน 0–10
+    คืน **None** ถ้า output parse เป็น dict ไม่ได้ (judge พัง — แยกจากกรณีได้ 0 จริง
+    เพื่อไม่ให้ adapter/parse failure ปลอมเป็นคะแนน 0 ใน training metric)
+    """
+    data = _safe_json(str(text)) if text is not None else None
+    if not isinstance(data, dict):
+        return None
+    per = {}
+    for c in criteria:
+        v = data.get(c, 0)
+        try:
+            per[c] = max(0, min(10, int(round(float(v)))))
+        except (TypeError, ValueError):
+            per[c] = 0
+    return per
+
+
+def _criteria_total_0_10(per: dict, criteria: list[str]) -> float:
+    """รวม per-criterion (แต่ละข้อ 0–10) → เฉลี่ยเป็นคะแนนรวม 0–10"""
+    if not criteria:
+        return 0.0
+    return round(sum(per.get(c, 0) for c in criteria) / len(criteria), 2)
+
+#VARK JUDGE
 class VARKJudgeScore(dspy.Signature):
-    """You are an evaluation judge for a VARK-tailored study guide (learning material).
+    """You are an expert educational auditor specializing in VARK learning
+    methodologies. Evaluate a generated VARK study guide (learning material)
+    against the criteria below. Score **each criterion 0–10 points**
+    (10 = fully complete, 0 = missing / completely failing, in between proportional to completeness).
 
-    Score on a 0-2 scale using 4 criteria. ALL must be met for a 2.
+    - A. Completeness & Compliance (completeness vs. the lesson's topics)
+    A.1 All topics present per the lesson — covers every main topic in `context`
+    A.2 Completeness of each topic's content — fully explained, not truncated, with a clear instructional structure
+    A.3 Has a study guide covering all VARK styles (Visual / Auditory / Read-Write / Kinesthetic)
+    A.4 Has an end-of-lesson Quiz / exercises that are complete and consistent with the content
 
-    ── 1. Content Coverage (เนื้อหาครบ) ──
-    - ครอบคลุมแนวคิดหลักทั้งหมดจาก `context` หรือไม่?
-    - มีตัวอย่าง / sub-topic สำคัญจาก context หรือไม่?
-    - ห้ามขาดประเด็นสำคัญที่ผู้เรียนต้องรู้
+    - B. Content Completeness
+    Simply check whether these components are present and complete (no need to look at the vark_style dominant):
+    B.1 Read/Write: highlights key topics and includes a content summary
+    B.2 Visual: has visual components (mind map/diagram/table/ASCII diagram)
+    B.3 Auditory: has narration/storytelling/summary in narration or dialogue form
+    B.4 Kinesthetic: has hands-on activities / experiment examples + lesson learnt
+    B.5 Has a tutorial-style pre-exam review summary — covering all key points across every topic
 
-    ── 2. VARK Style Alignment (ตรงสไตล์) ──
-    ตาม dominant style ใน `vark_style`:
-      V (Visual)      — ตาราง, แผนภาพ, การเปรียบเทียบเชิงโครงสร้าง
-      A (Aural)       — เล่าเรื่อง + dialogue block (Situation + บทพูดตัวละคร)
-      R (Read/Write)  — นิยาม, outline, จดโน้ตจัด format, อธิบายเป็นข้อความ
-      K (Kinesthetic) — step-by-step, แบบฝึกหัด, scenario apply
-    Material ต้องใช้ cue ของสไตล์ dominant อย่างชัดเจน
+    Note: B is judged purely on "content completeness", not on suitability for an individual learner.
 
-    ── 3. Pedagogical Quality (สอนเป็น) ──
-    - อธิบาย (ไม่ใช่แค่สรุป list)
-    - โครงสร้างชัด (heading, section, list)
-    - มีส่วนตรวจสอบความเข้าใจ/แบบฝึก ตามสไตล์ VARK
-
-    ── 4. Language ──
-    - ใช้ภาษาเดียวกับ `context` (Thai context → Thai material)
-
-    ── Rubric ──
-      0 = Poor:      ≥1 criterion ขาดอย่างชัดเจน (เนื้อหาขาดสำคัญ / VARK ไม่ตรง / โครงสร้างพัง / ผิดภาษา)
-      1 = Partial:   ผ่านเกณฑ์หลัก แต่มี gap ใน 1+ criterion
-      2 = Excellent: ผ่านครบทั้ง 4
-
-    Output `score` เป็นเลขจำนวนเต็ม 0, 1, หรือ 2 เท่านั้น
+    Output:
+      `scores` = a JSON object of all 9 criteria, integer values 0–10, e.g.
+        {"A.1":10,"A.2":8,"A.3":7,"A.4":5,"B.1":9,"B.2":10,"B.3":4,"B.4":3,"B.5":8}
+        Respond with JSON ONLY, no markdown fence or other text.
+      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
+        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
+        (name the criterion, e.g. "B.3 got 4 because...") along with strengths and what should be added.
+        Put everything in one paragraph; do not split it into per-criterion JSON.
     """
     context = dspy.InputField(desc="Original source content (text from PDF/document)")
     vark_style = dspy.InputField(
-        desc='Target VARK profile JSON, e.g. {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
+        desc='VARK profile JSON (for reference only — B does not adjust to the learner)'
     )
     reference_rationale = dspy.InputField(
         desc=(
-            "Optional gold-standard rationale (เกณฑ์ที่ dataset author เขียนเป็น reference). "
-            "ถ้าไม่ว่าง → judge ใช้เป็น ground truth ตัดสินว่า material ตรงเกณฑ์ไหม. "
-            "ถ้าว่าง → blind judge mode"
+            "Optional gold-standard rationale (criteria the dataset author wrote as a reference). "
+            "If non-empty → use it as ground truth to help judge. If empty → blind judge mode"
         )
     )
     learning_material = dspy.InputField(desc="Generated study guide to evaluate")
-    reasoning = dspy.OutputField(
-        desc="1-2 ประโยค — ถ้าคะแนน < 2 บอกว่า criterion ไหนอ่อนที่สุด"
+    scores = dspy.OutputField(
+        desc='A JSON object of all 9 criteria (A.1–A.4, B.1–B.5), integer values 0–10'
     )
-    score = dspy.OutputField(desc="Single integer: 0, 1, or 2")
+    feedback = dspy.OutputField(
+        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
+             "(below 6): why it received only that score, citing the criterion name (e.g. 'B.3 got 4 because...') "
+             "along with strengths and what to add. Do not split it into per-criterion items."
+    )
 
-
+#QUIZ JUDGE
 class QuizJudgeScore(dspy.Signature):
     """You are an evaluation judge for a VARK-style multiple-choice quiz.
+    Evaluate against criteria C.1–C.10 below, **0–10 points each** (10 = fully passes, 0 = completely fails).
 
-    Score on a 0-2 scale. Focus on 3 PRIMARY criteria:
+    - Question Quality
+    C.1 Every question is answerable from `learning_material` (does not rely on knowledge outside the lesson)
+    C.2 Questions target the lesson's key points (do not ask about trivial details / minor numbers)
+    C.3 Questions are clear, unambiguous, and not repeated
 
-    ── 1. คุณภาพโจทย์ (Question Quality) — ดีเทียบกับบทเรียนไหม ──
-    - แต่ละข้อตอบได้จาก `learning_material` หรือไม่? (ห้ามอิงความรู้นอกบทเรียน)
-    - โจทย์ตรงประเด็นสำคัญของบทเรียน — ไม่ใช่ถามรายละเอียดเล็กน้อย/ตัวเลขจิ๊บจ๊อย
-    - คำถามชัดเจน ไม่กำกวม ไม่มีคำถามซ้ำกัน
+    - Distractor / Choice Quality 
+    C.4 Distractors (the 3 wrong options) are reasonable, close to the real answer, not obviously wrong
+    C.5 All 4 choices are genuinely distinct (no duplicate wording/meaning)
+    C.6 Choices are similar in length, with no "all of the above / none of the above" shortcut
 
-    ── 2. คุณภาพ choice (Distractor Quality) — choice ที่สร้างดีไหม ──
-    - distractor (3 ตัวที่ผิด) ดูสมเหตุสมผล — ใกล้คำตอบจริง ไม่ใช่ผิดอย่างเห็นได้ชัด
-    - choice ทั้ง 4 แตกต่างกันจริง (ไม่มี wording ซ้ำ/ความหมายซ้ำ)
-    - ความยาวใกล้เคียง (ไม่ใช่ "ตัวถูกยาวกว่าเพื่อนเห็นๆ")
-    - ไม่มี "ถูกทุกข้อ" / "ผิดทุกข้อ" แบบ shortcut เว้นแต่มีเหตุผลจริง
+    - Answer Correctness 
+    C.7 `answer` letter matches the option that is correct per the content, for every question
+    C.8 `explanation` gives correct reasoning consistent with the answer
 
-    ── 3. คำตอบที่เฉลย (Answer Correctness) — เฉลยถูกไหม ──
-    - `answer` letter ต้องตรงกับ option ที่ถูกตามเนื้อหา `learning_material`
-    - `explanation` อธิบายเหตุผลที่ถูกต้อง สอดคล้องกับเฉลย
-    - **ถ้าข้อใดเฉลยผิด → คะแนนต้อง ≤ 1 เสมอ**
+    - Format & Alignment
+    C.9 JSON valid + every item has all keys (q, options, answer, vark, explanation)
+    C.10 `vark` tag is appropriate for the question, and the language matches `learning_material` (Thai→Thai)
 
-    ── Secondary checks (ลดคะแนนเล็กน้อย ไม่ใช่ critical) ──
-    - JSON valid, มี key ครบ (`q`, `options`, `answer`, `vark`, `diff`, `explanation`)
-    - `vark` tag สไตล์ตรงกับลักษณะคำถาม (V=ภาพ/ตาราง, A=story, R=นิยาม, K=apply)
-    - `diff` ตรงระดับที่ขอใน `difficulty`
-    - ภาษาตรงกับ `learning_material` (ไทย → ไทย)
-
-    ── Rubric ──
-      0 = Poor:      ≥1 ข้อ answer ผิด, หรือ JSON invalid, หรือ off-topic, หรือ distractor ห่วยทั้งชุด
-      1 = Partial:   ทุกข้อ on-topic + answer ถูก แต่ distractor บางข้ออ่อน
-                     หรือ VARK/difficulty เพี้ยนใน ≥1 ข้อ
-      2 = Excellent: ทุกข้อผ่านทั้ง 3 primary criteria + secondary ส่วนใหญ่
-
-    Output `score` เป็นเลขจำนวนเต็ม 0, 1, หรือ 2 เท่านั้น
+    Output:
+      `scores` = a JSON object of C.1–C.10, integer values 0–10, e.g.
+        {"C.1":10,"C.2":8,"C.3":9,"C.4":6,"C.5":7,"C.6":10,"C.7":10,"C.8":9,"C.9":10,"C.10":5}
+        Respond with JSON ONLY, no markdown fence or other text.
+      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
+        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
+        (name the criterion, e.g. "C.4 got 5 because...") along with strengths and what should be improved.
+        Put everything in one paragraph; do not split it into per-criterion JSON.
     """
     learning_material = dspy.InputField(desc="Source material the quiz is based on")
     vark_style = dspy.InputField(desc="Target VARK profile JSON")
-    difficulty = dspy.InputField(desc="Requested difficulty: easy / medium / hard")
     reference_rationale = dspy.InputField(
         desc=(
-            "Optional gold reference (required topics, expected dominant_vark, rationale). "
-            "ถ้าไม่ว่าง → judge ใช้เป็น ground truth: คำถามต้องครอบคลุม topics, "
-            "vark tag ส่วนใหญ่ตรง dominant, ตรรกะของ quiz สอดคล้องกับ rationale. "
-            "ถ้าว่าง → blind judge mode"
+            "Optional gold reference (e.g. required topics that should be covered). "
+            "If non-empty → use as ground truth. If empty → blind judge mode. "
+            "Note: no expected dominant VARK is specified — review the question set purely on quality."
         )
     )
     questions = dspy.InputField(desc="Generated quiz JSON array to evaluate")
-    reasoning = dspy.OutputField(
-        desc=(
-            "1-2 ประโยค — ถ้าคะแนน < 2 ระบุข้อที่อ่อนที่สุด + "
-            "criterion ไหนใน 3 ข้อหลักไม่ผ่าน (question/choice/answer)"
-        )
+    scores = dspy.OutputField(
+        desc="A JSON object of C.1–C.10, integer values 0–10"
     )
-    score = dspy.OutputField(desc="Single integer: 0, 1, or 2")
+    feedback = dspy.OutputField(
+        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
+             "(below 6): why it received only that score, citing the criterion name (e.g. 'C.4 got 5 because...') "
+             "along with strengths and what to improve. Do not split it into per-criterion items."
+    )
 
 
-def _judge_score(example, prediction, judge_lm, with_reference: bool = True) -> int:
-    """รัน 1 judge บน 1 example. คืน 0/1/2 หรือ -1 ถ้า parse ไม่ได้
+def _vark_judge(example, prediction, judge_lm, with_reference: bool = True):
+    """รัน VARK judge (Gemini) 1 ครั้ง บน 1 example
+    คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err) ถ้า error
+    feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
     with_reference=False → blind mode (judge ไม่เห็น expected/rationale)
     """
     judge = dspy.Predict(VARKJudgeScore)
-    material = (prediction.learning_material or "")[:5000]
+    material = (getattr(prediction, "learning_material", "") or "")[:5000]
     ctx = (example.context or "")[:3000]
     reference = _format_reference(example) if with_reference else ""
     try:
@@ -555,155 +758,170 @@ def _judge_score(example, prediction, judge_lm, with_reference: bool = True) -> 
                 reference_rationale=reference,
                 learning_material=material,
             )
-        m = _re.search(r"[012]", str(getattr(result, "score", "")))
-        return int(m.group()) if m else -1
     except Exception as e:
-        print(f"[judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
-        return -1
+        print(f"[vark_judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
+        return None, -1.0, f"[judge error] {type(e).__name__}: {e}"
+    per = _parse_criteria_scores(getattr(result, "scores", ""), VARK_CRITERIA)
+    fb = str(getattr(result, "feedback", "") or "").strip()
+    if per is None:
+        print(f"[vark_judge:{getattr(judge_lm, 'model', '?')}] unparseable scores: "
+              f"{str(getattr(result, 'scores', ''))[:120]!r}")
+        return None, -1.0, fb or "unparseable judge scores"
+    return per, _criteria_total_0_10(per, VARK_CRITERIA), fb
 
 
 def vark_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """
-    LLM-as-Judge metric — เฉลี่ยคะแนนจาก 2 judges
-      Gemini 3.1 flash lite + GPT-OSS (ผ่าน OpenRouter)
-    คืนคะแนน 0.0–1.0 (judge raw 0/1/2 → /2); คืน 0.0 ถ้า judges ไม่พร้อมใช้
-    threshold 0.5 ≈ "ทั้ง 2 judge ให้อย่างน้อย 1"
+    """LLM-as-Judge metric (Gemini, A/B rubric) — คืน 0.0–1.0 (total_0_10 / 10)
+    threshold 0.5 ≈ "ผ่านครึ่งหนึ่งของเกณฑ์"; คืน 0.0 ถ้า judge ไม่พร้อมใช้
     """
     try:
-        judge_a, judge_b = _get_judges()
+        judge = _get_judge()
     except Exception as e:
         if trace:
-            print(f"[vark_metric] judges unavailable ({e}) — return 0.0")
+            print(f"[vark_metric] judge unavailable ({e}) — return 0.0")
         return 0.0
 
-    s_a = _judge_score(example, prediction, judge_a)
-    s_b = _judge_score(example, prediction, judge_b)
-    valid = [s for s in (s_a, s_b) if s >= 0]
-    if not valid:
+    per, total, _ = _vark_judge(example, prediction, judge)
+    if per is None:
         return 0.0
-    avg_norm = sum(valid) / len(valid) / 2.0
-
     if trace:
-        la = _judge_label(JUDGE_MODEL_A)
-        lb = _judge_label(JUDGE_MODEL_B)
-        print(
-            f"[vark_metric] {la}={s_a} {lb}={s_b} "
-            f"avg_raw={sum(valid)/len(valid):.2f}/2 norm={avg_norm:.3f}"
-        )
-
-    return round(avg_norm, 4)
+        print(f"[vark_metric] {_judge_label(JUDGE_MODEL_A)} total={total}/10  {per}")
+    return round(total / 10.0, 4)
 
 
-def _judge_score_with_feedback(
-    example, prediction, judge_lm, with_reference: bool = True
-) -> tuple[int, str]:
-    """รัน 1 judge บน 1 example — คืน (score 0/1/2 หรือ -1, reasoning text)
-    ใช้สำหรับ GEPA ที่ต้องการ textual feedback เพื่อ reflect ปรับ prompt
-    """
-    judge = dspy.Predict(VARKJudgeScore)
-    material = (prediction.learning_material or "")[:5000]
-    ctx = (example.context or "")[:3000]
-    reference = _format_reference(example) if with_reference else ""
-    try:
-        with dspy.context(lm=judge_lm):
-            result = judge(
-                context=ctx,
-                vark_style=example.vark_style,
-                reference_rationale=reference,
-                learning_material=material,
-            )
-        reasoning = str(getattr(result, "reasoning", "") or "").strip()
-        m = _re.search(r"[012]", str(getattr(result, "score", "")))
-        return (int(m.group()) if m else -1), reasoning
-    except Exception as e:
-        return -1, f"[judge error] {type(e).__name__}: {e}"
-
-
-def vark_metric_gepa(
-    gold, pred, trace=None, pred_name=None, pred_trace=None
-):
-    """GEPA-compatible metric — เฉลี่ย 2 judges (Gemini + GPT-OSS)
-    คืน dspy.Prediction(score, feedback) ให้ reflection_lm ใช้ปรับ prompt
-    """
-    try:
-        judge_a, judge_b = _get_judges()
-    except Exception as e:
-        return dspy.Prediction(score=0.0, feedback=f"judges unavailable: {e}")
-
-    s_a, fb_a = _judge_score_with_feedback(gold, pred, judge_a)
-    s_b, fb_b = _judge_score_with_feedback(gold, pred, judge_b)
-    valid = [s for s in (s_a, s_b) if s >= 0]
-    score = (sum(valid) / len(valid) / 2.0) if valid else 0.0
-
-    la = _judge_label(JUDGE_MODEL_A)
-    lb = _judge_label(JUDGE_MODEL_B)
-    feedback = (
-        f"Avg judge score = {score:.3f} (norm 0-1)\n"
-        f"{la} gave {s_a}/2: {fb_a}\n"
-        f"{lb} gave {s_b}/2: {fb_b}"
-    )
-    return dspy.Prediction(score=round(score, 4), feedback=feedback)
-
-
-def _quiz_judge_score(example, prediction, judge_lm, with_reference: bool = True) -> int:
-    """รัน 1 judge สำหรับ Quiz output — คืน 0/1/2 หรือ -1 ถ้า parse ไม่ได้
-    with_reference=False → blind mode
+def _quiz_judge(example, prediction, judge_lm, with_reference: bool = True):
+    """รัน Quiz judge (Gemini) 1 ครั้ง บน 1 example
+    คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err)
+    feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
     """
     judge = dspy.Predict(QuizJudgeScore)
-    questions = (prediction.questions or "")[:6000]
+    questions = (getattr(prediction, "questions", "") or "")[:6000]
     material = (example.learning_material or "")[:4000]
-    reference = _format_reference(example) if with_reference else ""
+    reference = _format_quiz_reference(example) if with_reference else ""
     try:
         with dspy.context(lm=judge_lm):
             result = judge(
                 learning_material=material,
                 vark_style=example.vark_style,
-                difficulty=example.difficulty,
                 reference_rationale=reference,
                 questions=questions,
             )
-        m = _re.search(r"[012]", str(getattr(result, "score", "")))
-        return int(m.group()) if m else -1
     except Exception as e:
         print(f"[quiz_judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
-        return -1
+        return None, -1.0, f"[judge error] {type(e).__name__}: {e}"
+    per = _parse_criteria_scores(getattr(result, "scores", ""), QUIZ_CRITERIA)
+    fb = str(getattr(result, "feedback", "") or "").strip()
+    if per is None:
+        print(f"[quiz_judge:{getattr(judge_lm, 'model', '?')}] unparseable scores: "
+              f"{str(getattr(result, 'scores', ''))[:120]!r}")
+        return None, -1.0, fb or "unparseable judge scores"
+    return per, _criteria_total_0_10(per, QUIZ_CRITERIA), fb
 
 
 def quiz_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """LLM-as-Judge metric สำหรับ QuizModule — เฉลี่ย 2 judges → 0.0–1.0"""
+    """LLM-as-Judge metric สำหรับ QuizModule (Gemini, C rubric) → 0.0–1.0"""
     try:
-        judge_a, judge_b = _get_judges()
+        judge = _get_judge()
     except Exception as e:
         if trace:
-            print(f"[quiz_metric] judges unavailable ({e}) — return 0.0")
+            print(f"[quiz_metric] judge unavailable ({e}) — return 0.0")
         return 0.0
 
-    s_a = _quiz_judge_score(example, prediction, judge_a)
-    s_b = _quiz_judge_score(example, prediction, judge_b)
-    valid = [s for s in (s_a, s_b) if s >= 0]
-    if not valid:
+    per, total, _ = _quiz_judge(example, prediction, judge)
+    if per is None:
         return 0.0
-    avg_norm = sum(valid) / len(valid) / 2.0
-
     if trace:
-        la = _judge_label(JUDGE_MODEL_A)
-        lb = _judge_label(JUDGE_MODEL_B)
-        print(f"[quiz_metric] {la}={s_a} {lb}={s_b} norm={avg_norm:.3f}")
-    return round(avg_norm, 4)
+        print(f"[quiz_metric] {_judge_label(JUDGE_MODEL_A)} total={total}/10")
+    return round(total / 10.0, 4)
 
 
-# ─ Gemini native video endpoint (Judge A สำหรับ video — ดู YouTube จริง) ─
-_GEMINI_NATIVE_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+# VIDEO JUDGE
+class VideoPipelineJudge(dspy.Signature):
+    """You are an evaluation judge for a YouTube-video recommendation pipeline.
+    The pipeline has 2 stages: (1) generate search queries from the PDF content, (2) actually search YouTube
+    and select the relevant clips + classify the VARK of each selected clip.
+    Evaluate the overall result against criteria D.1–D.8, **0–10 points each** (10 = fully passes, 0 = completely fails).
+
+    - Query Quality
+    D.1 `youtube_queries` match the topic/content in `pdf_content` (searching with them returns relevant clips)
+    D.2 The queries are varied, covering multiple aspects/subtopics, not duplicating each other (3–5 queries)
+    D.3 The language of the queries matches the content (Thai content→Thai, English→English; technical terms may stay original)
+
+    - Selection Quality
+    D.4 The clips selected in `relevant_indices` are actually relevant to the topic (judged from title/transcript)
+    D.5 No off-topic clips slipped into `relevant_indices` (no false positives)
+
+    - VARK Classification
+    D.6 `vark_per_video` assigns V/A/R/K of each selected clip correctly per the clip's actual nature
+        (V=diagram/animation/slide, A=lecture/talk/narration, R=text/code, K=hands-on/demo)
+
+    - Format & Validity
+    D.7 `relevant_indices` is a JSON array of sequence numbers that actually exist in the list (valid index)
+    D.8 `vark_per_video` is a JSON object whose keys match the selected indices + values are the letters V/A/R/K
+
+    Note: if the video list is empty / has no transcript (e.g. no YOUTUBE_API_KEY), evaluate
+    D.4–D.8 as far as possible from the available data, and weight D.1–D.3 (query quality) as the main focus.
+
+    Output:
+      `scores` = a JSON object of D.1–D.8, integer values 0–10, e.g.
+        {"D.1":10,"D.2":8,"D.3":10,"D.4":7,"D.5":6,"D.6":8,"D.7":10,"D.8":9}
+        Respond with JSON ONLY, no markdown fence or other text.
+      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
+        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
+        (name the criterion, e.g. "D.5 got 4 because...") along with strengths and what should be improved.
+        Put everything in one paragraph; do not split it into per-criterion JSON.
+    """
+    pdf_content = dspy.InputField(desc="Source content from the PDF the learner is studying")
+    youtube_queries = dspy.InputField(desc="The search queries the system generated (JSON array)")
+    videos_with_transcripts = dspy.InputField(
+        desc="The list of videos actually found, numbered, with title/channel/views/transcript"
+    )
+    relevant_indices = dspy.InputField(desc="Sequence numbers of clips the system selected as relevant (JSON array)")
+    vark_per_video = dspy.InputField(desc="Map of sequence number→VARK assigned by the system (JSON object)")
+    scores = dspy.OutputField(desc="A JSON object of D.1–D.8, integer values 0–10")
+    feedback = dspy.OutputField(
+        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
+             "(below 6): why it received only that score, citing the criterion name (e.g. 'D.5 got 4 because...') "
+             "along with strengths and what to improve. Do not split it into per-criterion items."
+    )
+
+
+def _video_pipeline_judge(pdf_content, youtube_queries, videos_with_transcripts,
+                          relevant_indices, vark_per_video, judge_lm):
+    """รัน Video pipeline judge (Gemini, D rubric) 1 ครั้ง บน pipeline output 1 ชุด
+    คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err)
+    feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
+    """
+    judge = dspy.Predict(VideoPipelineJudge)
+    try:
+        with dspy.context(lm=judge_lm):
+            result = judge(
+                pdf_content=(pdf_content or "")[:4000],
+                youtube_queries=(youtube_queries or "")[:1500],
+                videos_with_transcripts=(videos_with_transcripts or "")[:8000],
+                relevant_indices=(relevant_indices or "")[:500],
+                vark_per_video=(vark_per_video or "")[:1000],
+            )
+    except Exception as e:
+        print(f"[video_judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
+        return None, -1.0, f"[judge error] {type(e).__name__}: {e}"
+    per = _parse_criteria_scores(getattr(result, "scores", ""), VIDEO_CRITERIA)
+    fb = str(getattr(result, "feedback", "") or "").strip()
+    if per is None:
+        print(f"[video_judge:{getattr(judge_lm, 'model', '?')}] unparseable scores: "
+              f"{str(getattr(result, 'scores', ''))[:120]!r}")
+        return None, -1.0, fb or "unparseable judge scores"
+    return per, _criteria_total_0_10(per, VIDEO_CRITERIA), fb
 
 
 def _format_reference(example: dspy.Example) -> str:
-    """รวม example.expected เป็น reference text สำหรับ judge ทุกตัว
+    """รวม example.expected เป็น reference text สำหรับ vark/video judge
 
-    รองรับทุก schema:
+    รองรับ schema:
       video: vark / subtopics / rationale
-      quiz : topics / dominant_vark / rationale
       vark : rationale อย่างเดียว (ถ้ามี — โดยปกติไม่มี)
     คืน '' ถ้าไม่มี expected → judge จะทำงานในโหมด blind
+    (quiz ใช้ _format_quiz_reference แยก — ไม่ตัดสินจาก dominant)
     """
     exp = getattr(example, "expected", None)
     if not isinstance(exp, dict) or not exp:
@@ -714,116 +932,27 @@ def _format_reference(example: dspy.Example) -> str:
         parts.append(f"Gold vark: {exp['vark']}")
     if exp.get("subtopics"):
         parts.append(f"Gold subtopics: {exp['subtopics']}")
-    # quiz-style
-    if exp.get("topics"):
-        parts.append(f"Required topics: {exp['topics']}")
-    if exp.get("dominant_vark"):
-        parts.append(f"Expected dominant VARK: {exp['dominant_vark']}")
     # shared
     if exp.get("rationale"):
         parts.append(f"Rationale: {exp['rationale']}")
     return "\n".join(parts)
 
 
+def _format_quiz_reference(example: dspy.Example) -> str:
+    """Quiz reference สำหรับ judge — **ตัด dominant ออก** (eval ไม่ตัดสินจาก dominant แล้ว)
+    ใส่เฉพาะ required topics ที่ควรครอบคลุม ถ้ามี; ไม่งั้นคืน '' → judge รีวิวชุดคำถามล้วนๆ
+    """
+    exp = getattr(example, "expected", None)
+    if not isinstance(exp, dict) or not exp:
+        return ""
+    parts = []
+    if exp.get("topics"):
+        parts.append(f"Required topics: {exp['topics']}")
+    return "\n".join(parts)
+
+
 # alias เพื่อ backward-compat
 _format_video_reference = _format_reference
-
-
-def _video_judge_a_native(
-    example: dspy.Example,
-    prediction: dspy.Prediction,
-    model_name: str,
-    api_key: str,
-    with_reference: bool = True,
-) -> int:
-    """Judge A — Gemini ดู YouTube video เองผ่าน file_data.file_uri
-
-    bypass DSPy/LiteLLM เพราะ signature ของ Gemini สำหรับ video URL
-    ต้องส่งเป็น content part `file_data` ซึ่ง LiteLLM ยังไม่ exposed ตรงๆ
-    with_reference=False → blind mode (Gemini ไม่เห็น expected)
-    """
-    video_url = getattr(example, "video_url", "") or ""
-    if not video_url or "REPLACE" in video_url:
-        print("[video_judge_a] no video_url — skip")
-        return -1
-
-    classification = (prediction.classification or "")[:2000]
-    # ลอก prefix "gemini/" ที่ DSPy/LiteLLM ใช้
-    model_id = model_name.split("/", 1)[-1] if "/" in model_name else model_name
-    # Gemini ไม่ชอบ query string ยาว — strip ทุกอย่างหลัง watch?v=...
-    clean_url = _re.split(r"[&#]", video_url, maxsplit=1)[0]
-
-    reference = _format_reference(example) if with_reference else ""
-    reference_block = (
-        f"\nReference (gold standard — use as ground truth):\n{reference}\n"
-        if reference else ""
-    )
-
-    ref_criterion = (
-        "4. Reference consistency: candidate must be consistent with the Reference; "
-        "near-match + rationale-supported = 2; contradicts rationale = 0.\n"
-    ) if reference else ""
-
-    prompt = (
-        "Watch the attached YouTube video and judge a VARK classification.\n\n"
-        f"Learner VARK profile: {example.vark_weight_desc}\n"
-        f"{reference_block}\n"
-        f"Classification (JSON) to evaluate:\n{classification}\n\n"
-        "Evaluation criteria:\n"
-        "1. VARK fit: vark[] matches what you actually see/hear "
-        "(V=visual diagram/animation, A=lecture/talk, R=text/code, K=hands-on/demo).\n"
-        "2. Subtopic relevance: 2–4 short keywords (≤16 chars) that reflect "
-        "actual content; Thai video → Thai subtopics.\n"
-        "3. JSON validity: valid JSON; required keys = vark, subtopics.\n"
-        + ref_criterion
-        + "\nRubric: 0 = poor, 1 = partial, 2 = excellent.\n"
-        "Respond with ONLY a single digit: 0, 1, or 2."
-    )
-
-    payload = {
-        "contents": [{
-            "parts": [
-                {"file_data": {"file_uri": clean_url}},
-                {"text": prompt},
-            ],
-        }],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 32},
-    }
-
-    url = f"{_GEMINI_NATIVE_ENDPOINT}/{model_id}:generateContent"
-    # key ส่งทาง header — ไม่ leak ใน URL/error log
-    headers = {"x-goog-api-key": api_key}
-    transient = {429, 500, 502, 503, 504}
-
-    last_err: Optional[Exception] = None
-    for attempt in range(4):  # 1 ครั้งแรก + 3 retries
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=180)
-            if r.status_code in transient:
-                wait = (2 ** attempt) + random.random()
-                print(f"[video_judge_a] HTTP {r.status_code} — retry in {wait:.1f}s "
-                      f"(attempt {attempt + 1}/4)")
-                time.sleep(wait)
-                continue
-            r.raise_for_status()
-            data = r.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            m = _re.search(r"[012]", text)
-            return int(m.group()) if m else -1
-        except (requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout) as e:
-            last_err = e
-            wait = (2 ** attempt) + random.random()
-            print(f"[video_judge_a] {type(e).__name__} — retry in {wait:.1f}s")
-            time.sleep(wait)
-        except Exception as e:
-            # non-retryable (4xx อื่นๆ, parse error) — ออกเลย
-            print(f"[video_judge_a (Gemini native)] {type(e).__name__}: {e}")
-            return -1
-
-    print(f"[video_judge_a (Gemini native)] giving up after 4 attempts ({last_err})")
-    return -1
-
 
 def _gemini_api_key() -> str:
     return (
@@ -833,93 +962,235 @@ def _gemini_api_key() -> str:
     ).strip()
 
 
-def video_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """LLM-as-Judge metric สำหรับ video classifier — Gemini ดู YouTube video ตัวเดียว
-    คะแนน 0/1/2 → normalize เป็น 0.0–1.0; คืน 0.0 ถ้า judge ไม่ valid
+def _next_eval_path(kind: str) -> str:
+    """คืน path ใหม่ (เลขรันต่อเนื่อง) สำหรับเก็บ eval report ใต้ reports/
+    เช่น reports/vark_eval1.json, reports/quiz_eval2.json, reports/video_eval1.json
     """
-    g_key = _gemini_api_key()
-    if not g_key:
-        if trace:
-            print("[video_metric] no GEMINI_API_KEY — return 0.0")
-        return 0.0
-
-    s = _video_judge_a_native(example, prediction, JUDGE_MODEL_A, g_key)
-    if s < 0:
-        return 0.0
-    norm = s / 2.0
-    if trace:
-        la = _judge_label(JUDGE_MODEL_A)
-        print(f"[video_metric] {la}[watches video]={s} norm={norm:.3f}")
-    return round(norm, 4)
+    os.makedirs("reports", exist_ok=True)
+    n = 1
+    while os.path.exists(os.path.join("reports", f"{kind}_eval{n}.json")):
+        n += 1
+    return os.path.join("reports", f"{kind}_eval{n}.json")
 
 
-def evaluate_testset(module, testset: list, blind: bool = False) -> dict:
+def _render_report_body(report: dict, heading_level: int = 1) -> str:
+    """ส่วนเนื้อ report ของ AI ตัวเดียว (title + คะแนน + per-example output/feedback)
+    heading_level: 1 = ใช้ '#'/'##'/'###' (report เดี่ยว);
+                   2 = ใช้ '##'/'###'/'####' (section ในไฟล์รวมหลาย AI)
     """
-    Evaluate VARK study guide testset ด้วย LLM-as-Judge 2 ตัว
-      - Gemini 3.1 flash lite (judge A)
-      - GPT-OSS via OpenRouter (judge B)
-    รายงาน mean, distribution, agreement rate, mean abs diff
-    blind=True → judges ไม่เห็น expected.rationale (ลด reference leak)
+    gen = report.get("generator", DEFAULT_GENERATOR)
+    h1 = "#" * heading_level
+    h2 = "#" * (heading_level + 1)
+    h3 = "#" * (heading_level + 2)
+    lines: list[str] = []
+    lines.append(f"{h1} {report.get('module', 'Eval report')} — {gen}")
+    lines.append("")
+    lines.append(f"- Generator (AI): **{gen}**")
+    lines.append(f"- Mode: `{report.get('mode', '')}`")
+    lines.append(f"- Samples: {report.get('n')}")
+    lines.append(f"- Mean total: **{gen} --> {report.get('mean_total')}/10**")
+    lines.append(f"- Judge: `{report.get('judge', {}).get('model', '')}`")
+    if report.get("expected_match_avg") is not None:
+        lines.append(f"- Expected-match: {report['expected_match_avg']} "
+                     f"({report.get('n_labeled')}/{report.get('n')} labeled)")
+    lines.append("")
+    crit = report.get("criterion_avgs", {})
+    if crit:
+        lines.append(f"{h2} Per-criterion averages (0–10)")
+        lines.append("")
+        lines.append("| Criterion | Avg |")
+        lines.append("| --- | --- |")
+        for c, v in crit.items():
+            lines.append(f"| {c} | {v} |")
+        lines.append("")
+
+    lines.append(f"{h2} Per-example output & feedback")
+    lines.append("")
+    for fb in report.get("feedbacks", []):
+        i = fb.get("i")
+        total = fb.get("total")
+        total_str = f"{total}/10" if total is not None and total >= 0 else "ERR"
+        lines.append(f"{h3} Example {i} — total {total_str}")
+        lines.append("")
+        scores = fb.get("scores")
+        if isinstance(scores, dict) and scores:
+            lines.append("**Scores:** "
+                         + ", ".join(f"{c}={v}" for c, v in scores.items()))
+            lines.append("")
+        lines.append(f"**{gen} output:**")
+        lines.append("")
+        lines.append("````markdown")
+        lines.append((fb.get("output") or "").rstrip())
+        lines.append("````")
+        lines.append("")
+        lines.append("**Feedback:**")
+        lines.append("")
+        lines.append((fb.get("feedback") or "").strip() or "_(no feedback)_")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_report_md(report: dict, comparison: str = "") -> str:
+    """report เดี่ยว (1 AI) — comparison (ถ้ามี) แปะบนสุด แล้วตามด้วยเนื้อ report"""
+    parts: list[str] = []
+    if comparison:
+        parts.append(comparison.rstrip())
+        parts.append("")
+        parts.append("---")
+        parts.append("")
+    parts.append(_render_report_body(report, heading_level=1))
+    return "\n".join(parts)
+
+
+def _render_combined_report_md(model_reports: list, comparison: str = "") -> str:
+    """ไฟล์รวมต่อ 1 target — comparison บนสุด แล้วตามด้วย section ของแต่ละ AI
+    model_reports: list ของ (label, report_dict) เรียงตาม parser ที่ใส่
     """
-    judge_a, judge_b = _get_judges()
-    la = _judge_label(JUDGE_MODEL_A)
-    lb = _judge_label(JUDGE_MODEL_B)
-    mode = "blind" if blind else "ref-augmented"
-    print(f"\n🔎 VARK eval mode: {mode}  ({la} + {lb})")
-
-    scores_a, scores_b = [], []
-    n = len(testset)
-    for i, ex in enumerate(testset, 1):
-        pred = module(context=ex.context, vark_style=ex.vark_style)
-        sa = _judge_score(ex, pred, judge_a, with_reference=not blind)
-        sb = _judge_score(ex, pred, judge_b, with_reference=not blind)
-        scores_a.append(sa)
-        scores_b.append(sb)
-        print(f"  [{i:>3}/{n}] {la}={sa} {lb}={sb}")
-
-    return _print_judge_report(f"VARK [{mode}]", n, scores_a, scores_b)
+    parts: list[str] = []
+    if comparison:
+        parts.append(comparison.rstrip())
+        parts.append("")
+        parts.append("---")
+        parts.append("")
+    for _label, rep in model_reports:
+        parts.append(_render_report_body(rep, heading_level=1).rstrip())
+        parts.append("")
+        parts.append("---")
+        parts.append("")
+    # ตัด separator ตัวท้ายสุดออก
+    while parts and parts[-1] in ("", "---"):
+        parts.pop()
+    return "\n".join(parts) + "\n"
 
 
-def _summarize_judge_scores(scores: list[int]) -> dict:
-    valid = [s for s in scores if s >= 0]
+def _write_report(report: dict, report_path: Optional[str],
+                  comparison: str = "") -> None:
+    """เขียน report เป็น JSON + .md ลง report_path (ถ้าระบุ)
+    comparison: ตารางเทียบคะแนนทุก AI — แปะไว้บนสุดของ .md (ว่าง = ไม่มี)
+    """
+    if not report_path:
+        return
+    try:
+        os.makedirs(os.path.dirname(report_path) or ".", exist_ok=True)
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        md_path = (report_path[:-5] if report_path.endswith(".json")
+                   else report_path) + ".md"
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(_render_report_md(report, comparison=comparison))
+        print(f"[report] saved {report_path} + {md_path}")
+    except Exception as e:
+        print(f"[report] write failed: {e}")
+
+
+def _write_combined_report(target: str, model_reports: list, results: dict,
+                           judge_model: str, mode: str, comparison: str,
+                           report_path: Optional[str]) -> None:
+    """เขียน report รวมหลาย AI ของ 1 target ลงไฟล์เดียว (JSON + .md)
+    model_reports: list ของ (label, report_dict) เรียงตาม parser
+    results[target]: {label: mean_total} ใช้ทำ summary ใน JSON
+    """
+    if not report_path:
+        return
+    try:
+        os.makedirs(os.path.dirname(report_path) or ".", exist_ok=True)
+        combined = {
+            "target": target,
+            "title": TARGET_TITLES.get(target, target),
+            "mode": mode,
+            "judge": {"model": judge_model},
+            "comparison": results.get(target, {}),       # {label: mean_total}
+            "models": {label: rep for label, rep in model_reports},
+        }
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(combined, f, ensure_ascii=False, indent=2)
+        md_path = (report_path[:-5] if report_path.endswith(".json")
+                   else report_path) + ".md"
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(_render_combined_report_md(model_reports, comparison=comparison))
+        labels = ", ".join(label for label, _ in model_reports)
+        print(f"[report] saved {report_path} + {md_path}  ({labels})")
+    except Exception as e:
+        print(f"[report] combined write failed: {e}")
+
+
+def _criterion_avgs(per_list: list, criteria: list[str]) -> dict:
+    """เฉลี่ยคะแนนรายเกณฑ์ (0–10) ข้ามทุก example (ข้าม example ที่ judge error)"""
+    valid = [p for p in per_list if isinstance(p, dict)]
     if not valid:
-        return {"scored": 0, "mean_raw": 0.0, "mean_norm": 0.0, "dist": {0: 0, 1: 0, 2: 0}}
+        return {c: 0.0 for c in criteria}
     return {
-        "scored": len(valid),
-        "mean_raw": round(sum(valid) / len(valid), 3),
-        "mean_norm": round(sum(valid) / len(valid) / 2, 3),
-        "dist": {k: valid.count(k) for k in (0, 1, 2)},
+        c: round(sum(p.get(c, 0) for p in valid) / len(valid), 2)
+        for c in criteria
     }
 
 
-def _print_judge_report(label: str, n: int, scores_a: list[int], scores_b: list[int]) -> dict:
-    name_a = JUDGE_MODEL_A.split("/")[-1]
-    name_b = JUDGE_MODEL_B.split("/")[-1]
-    la = _judge_label(JUDGE_MODEL_A)
-    lb = _judge_label(JUDGE_MODEL_B)
-    sum_a = _summarize_judge_scores(scores_a)
-    sum_b = _summarize_judge_scores(scores_b)
-    pairs = [(a, b) for a, b in zip(scores_a, scores_b) if a >= 0 and b >= 0]
-    exact = (sum(1 for a, b in pairs if a == b) / len(pairs)) if pairs else 0.0
-    mad = (sum(abs(a - b) for a, b in pairs) / len(pairs)) if pairs else 0.0
+def _build_criteria_report(label, n, totals, per_list, criteria, model_name,
+                           mode, extra=None) -> dict:
+    """สร้าง + print report สำหรับ judge แบบ per-criterion (0–10)
+    คืน dict ที่มี mean_total (0–10), criterion_avgs, judge.model
+    """
+    valid_totals = [t for t in totals if t is not None and t >= 0]
+    mean_total = round(sum(valid_totals) / len(valid_totals), 2) if valid_totals else 0.0
+    crit_avgs = _criterion_avgs(per_list, criteria)
     report = {
         "module": label,
+        "mode": mode,
         "n": n,
-        "judge_a": {"model": name_a, **sum_a},
-        "judge_b": {"model": name_b, **sum_b},
-        "agreement_rate": round(exact, 3),
-        "mean_abs_diff": round(mad, 3),
+        "mean_total": mean_total,           # คะแนนรวมเฉลี่ย 0–10
+        "criterion_avgs": crit_avgs,        # ราย criterion 0–10
+        "judge": {"model": model_name},
     }
-    print(f"\n📊 {label} — LLM-as-Judge Evaluation Report")
-    print(f"   Samples         : {n}")
-    for tag, summ in ((la, report["judge_a"]), (lb, report["judge_b"])):
-        print(f"\n   {tag} — {summ['model']}")
-        print(f"     scored       : {summ['scored']}/{n}")
-        print(f"     mean (0-2)   : {summ['mean_raw']}")
-        print(f"     normalized   : {summ['mean_norm']}")
-        print(f"     distribution : 0={summ['dist'][0]}  1={summ['dist'][1]}  2={summ['dist'][2]}")
-    print(f"\n   Agreement (exact match) : {report['agreement_rate']}")
-    print(f"   Mean abs diff (0–2)     : {report['mean_abs_diff']}")
+    if extra:
+        report.update(extra)
+    print(f"\n📊 {label} — LLM-as-Judge ({_judge_label(JUDGE_MODEL_A)}, per-criterion 0–10)")
+    print(f"   Samples      : {n}")
+    print(f"   Mean total   : {mean_total}/10")
+    print(f"   Per-criterion averages (0–10):")
+    for c in criteria:
+        print(f"     {c:<5}: {crit_avgs[c]}")
+    return report
+
+
+def evaluate_testset(module, testset: list, blind: bool = False,
+                     report_path: Optional[str] = None,
+                     gen_lm=None, gen_label: Optional[str] = None) -> dict:
+    """Evaluate VARK study guide testset — Gemini judge (A/B rubric, per-criterion 0–10)
+    รายงาน mean_total (0–10) + criterion_avgs รายเกณฑ์
+    blind=True → judge ไม่เห็น expected.rationale (ลด reference leak)
+    gen_lm    → generator LM ที่อยากเทียบ (None = ใช้ global LM เดิม)
+    gen_label → ชื่อ AI ที่จะโชว์ใน report (เช่น "Typhoon")
+    """
+    judge = _get_judge()
+    mode = "blind" if blind else "ref-augmented"
+    gen_label = gen_label or DEFAULT_GENERATOR
+    print(f"\n🔎 VARK eval mode: {mode}  | AI: {gen_label}  ({_judge_label(JUDGE_MODEL_A)})")
+
+    totals, per_list, feedbacks = [], [], []
+    n = len(testset)
+    for i, ex in enumerate(testset, 1):
+        with _gen_context(gen_lm):
+            pred = module(context=ex.context, vark_style=ex.vark_style)
+        per, total, fb = _vark_judge(ex, pred, judge, with_reference=not blind)
+        per_list.append(per)
+        totals.append(total if per is not None else None)
+        # output = สิ่งที่ AI พิมพ์ออกมา (learning_material)
+        out_text = pred.learning_material or ""
+        feedbacks.append({"i": i, "total": total if per is not None else None,
+                          "scores": per,
+                          "output": out_text,
+                          "feedback": fb})
+        shown = f"{total}/10" if per is not None else "ERR"
+        print(f"  [{i:>3}/{n}] {gen_label} total={shown}")
+        if fb:
+            print(f"        feedback: {fb}")
+
+    report = _build_criteria_report(
+        f"VARK [{mode}]", n, totals, per_list, VARK_CRITERIA,
+        JUDGE_MODEL_A.split("/")[-1], mode,
+        extra={"feedbacks": feedbacks, "generator": gen_label},
+    )
+    _write_report(report, report_path)
     return report
 
 
@@ -938,196 +1209,280 @@ def _safe_json(s: str):
         return None
 
 
-def _compare_video_to_expected(prediction_json: str, expected: dict) -> dict:
+def evaluate_quiz_testset(module, testset: list, blind: bool = False,
+                          report_path: Optional[str] = None,
+                          gen_lm=None, gen_label: Optional[str] = None) -> dict:
+    """Evaluate QuizModule — Gemini judge (C rubric, per-criterion 0–10)
+    ให้ judge รีวิวชุดคำถามที่ generate ออกมาล้วนๆ — ไม่เทียบกับ expected
+    blind=True → judge ไม่เห็น reference (expected.topics)
+    gen_lm/gen_label → generator AI ที่อยากเทียบ (None = global LM เดิม)
     """
-    เทียบ video classification output กับ expected labels
-    คืน dict ของผลเปรียบเทียบแต่ละ field + match_score รวม
-    """
-    actual = _safe_json(prediction_json)
-    if not isinstance(actual, dict):
-        return {"parsed": False, "match_score": 0.0}
-
-    out: dict = {"parsed": True}
-    scores: list[float] = []
-
-    if "vark" in expected:
-        e, a = set(expected["vark"]), set(actual.get("vark", []) or [])
-        jac = len(e & a) / len(e | a) if (e | a) else 1.0
-        out["vark"] = {"expected": sorted(e), "actual": sorted(a),
-                       "exact": e == a, "jaccard": round(jac, 3)}
-        scores.append(jac)
-
-    if "subtopics" in expected:
-        kws = expected["subtopics"] or []
-        actual_subs = actual.get("subtopics", []) or []
-        joined = " ".join(actual_subs).lower()
-        hits = [k for k in kws if k.lower() in joined]
-        recall = len(hits) / len(kws) if kws else 1.0
-        out["subtopics"] = {"expected": kws, "actual": actual_subs,
-                            "hits": hits, "misses": [k for k in kws if k not in hits],
-                            "recall": round(recall, 3)}
-        scores.append(recall)
-
-    out["match_score"] = round(sum(scores) / len(scores), 3) if scores else 0.0
-    return out
-
-
-def _compare_quiz_to_expected(prediction_json: str, expected: dict) -> dict:
-    """
-    เทียบ quiz output (JSON array) กับ expected labels
-    เช็ค: topics ที่ต้องคลุม, dominant_vark share
-    """
-    actual = _safe_json(prediction_json)
-    if not isinstance(actual, list):
-        return {"parsed": False, "match_score": 0.0}
-
-    out: dict = {"parsed": True, "n_questions": len(actual)}
-    scores: list[float] = []
-
-    if "topics" in expected and expected["topics"]:
-        topics = expected["topics"]
-        big = []
-        for q in actual:
-            if not isinstance(q, dict):
-                continue
-            big.append(str(q.get("q", "")))
-            opts = q.get("options") or {}
-            if isinstance(opts, dict):
-                big.extend(str(v) for v in opts.values())
-            big.append(str(q.get("explanation", "")))
-        joined = " ".join(big).lower()
-        hits = [t for t in topics if t.lower() in joined]
-        recall = len(hits) / len(topics)
-        out["topics"] = {"expected": topics, "hits": hits,
-                         "misses": [t for t in topics if t not in hits],
-                         "recall": round(recall, 3)}
-        scores.append(recall)
-
-    if "dominant_vark" in expected:
-        dom = expected["dominant_vark"]
-        tags = [q.get("vark", "") for q in actual if isinstance(q, dict)]
-        share = (sum(1 for t in tags if t == dom) / len(tags)) if tags else 0.0
-        out["dominant_vark"] = {"expected": dom, "share": round(share, 3),
-                                "ok": share >= 0.5}
-        scores.append(share)
-
-    out["match_score"] = round(sum(scores) / len(scores), 3) if scores else 0.0
-    return out
-
-
-def evaluate_quiz_testset(module, testset: list, blind: bool = False) -> dict:
-    """Evaluate QuizModule + เทียบกับ expected ถ้ามี label
-    blind=True → judges ไม่เห็น expected.topics/dominant_vark/rationale
-    """
-    judge_a, judge_b = _get_judges()
-    la = _judge_label(JUDGE_MODEL_A)
-    lb = _judge_label(JUDGE_MODEL_B)
+    judge = _get_judge()
     mode = "blind" if blind else "ref-augmented"
-    print(f"\n🔎 Quiz eval mode: {mode}  ({la} + {lb})")
-    scores_a, scores_b = [], []
-    match_scores: list[float] = []
-    comparisons: list[dict] = []
+    gen_label = gen_label or DEFAULT_GENERATOR
+    print(f"\n🔎 Quiz eval mode: {mode}  | AI: {gen_label}  ({_judge_label(JUDGE_MODEL_A)})")
+    totals, per_list, feedbacks = [], [], []
     n = len(testset)
     for i, ex in enumerate(testset, 1):
-        pred = module(
-            learning_material=ex.learning_material,
-            vark_style=ex.vark_style,
-            difficulty=ex.difficulty,
-            count=ex.count,
-        )
-        sa = _quiz_judge_score(ex, pred, judge_a, with_reference=not blind)
-        sb = _quiz_judge_score(ex, pred, judge_b, with_reference=not blind)
-        scores_a.append(sa)
-        scores_b.append(sb)
+        with _gen_context(gen_lm):
+            pred = module(
+                learning_material=ex.learning_material,
+                vark_style=ex.vark_style,
+                count=ex.count,
+            )
+        per, total, fb = _quiz_judge(ex, pred, judge, with_reference=not blind)
+        per_list.append(per)
+        totals.append(total if per is not None else None)
+        feedbacks.append({"i": i, "total": total if per is not None else None,
+                          "scores": per,
+                          "output": pred.questions or "",
+                          "feedback": fb})
 
-        line = f"  [{i:>3}/{n}] {la}={sa} {lb}={sb}"
-        expected = getattr(ex, "expected", None)
-        if expected:
-            cmp = _compare_quiz_to_expected(pred.questions, expected)
-            comparisons.append(cmp)
-            if cmp.get("parsed"):
-                match_scores.append(cmp["match_score"])
-                bits = []
-                if "topics" in cmp:
-                    bits.append(f"topics {cmp['topics']['recall']:.0%}")
-                if "dominant_vark" in cmp:
-                    ok = "✓" if cmp["dominant_vark"]["ok"] else "✗"
-                    bits.append(f"dom-vark {cmp['dominant_vark']['share']:.0%} {ok}")
-                if bits:
-                    line += " | " + " ".join(bits)
-            else:
-                line += " | ⚠ invalid JSON"
-        print(line)
+        # ── print ชุดคำถามที่ generate ออกมา (ให้เห็นผลลัพธ์ระหว่าง eval) ──
+        shown = f"{total}/10" if per is not None else "ERR"
+        print("─" * 70)
+        print(f"[Quiz eval] {gen_label} example {i}/{n} — total={shown}")
+        print("[Quiz eval] questions:\n")
+        print(pred.questions or "(empty)")
+        print("─" * 70)
+        if fb:
+            print(f"        feedback: {fb}")
 
-    report = _print_judge_report(f"Quiz [{mode}]", n, scores_a, scores_b)
-    if match_scores:
-        avg = sum(match_scores) / len(match_scores)
-        report["expected_match_avg"] = round(avg, 3)
-        report["n_labeled"] = len(match_scores)
-        print(f"   Expected-match  : {avg:.3f}  ({len(match_scores)}/{n} labeled)")
+    report = _build_criteria_report(
+        f"Quiz [{mode}]", n, totals, per_list, QUIZ_CRITERIA,
+        JUDGE_MODEL_A.split("/")[-1], mode,
+        extra={"feedbacks": feedbacks, "generator": gen_label},
+    )
+    _write_report(report, report_path)
     return report
 
 
-def evaluate_video_testset(module, testset: list, blind: bool = False) -> dict:
-    """Evaluate VideoClassifierModule — Gemini ดู YouTube video ตัวเดียว
-    + เทียบกับ expected ถ้ามี label
-    blind=True → Gemini ไม่เห็น expected (ดูจากคลิปล้วนๆ)
+def _build_video_lines(videos: list[dict]) -> str:
+    """สร้างรายการวิดีโอแบบมีเลขลำดับ (1., 2., ...) พร้อม title/channel/views/transcript
+    สำหรับป้อนให้ VideoRelevanceModule — mirror ของ filter_videos_by_relevance ใน main.py
+    (sync version สำหรับ eval)
     """
-    g_key = _gemini_api_key()
-    if not g_key:
-        raise ValueError("GEMINI_API_KEY required for video judge")
-    mode = "blind" if blind else "ref-augmented"
-    print(f"\n🔎 Video eval mode: {mode}")
-    la = _judge_label(JUDGE_MODEL_A)
-    name = f"{la} ({JUDGE_MODEL_A.split('/')[-1]}) [video]"
-    scores: list[int] = []
-    match_scores: list[float] = []
+    import asyncio
+    real = [v for v in videos if not v.get("is_search_link") and v.get("video_id")]
+    if not real:
+        return ""
+    vids = [v["video_id"] for v in real]
+    transcripts = [_fetch_transcript(vid) for vid in vids]
+    try:
+        stats = asyncio.run(_fetch_video_stats(vids))
+    except Exception as e:
+        print(f"[video_eval] stats fetch error: {e}")
+        stats = {}
+    return "\n".join(
+        f"{i+1}. Title: {v['title']}\n"
+        f"   Channel: {v.get('channel','')}\n"
+        f"   Views: {_fmt_count(stats.get(v['video_id'],{}).get('views',0))}  "
+        f"Likes: {_fmt_count(stats.get(v['video_id'],{}).get('likes',0))}\n"
+        f"   Transcript: {(t or '(no transcript)')[:500]}"
+        for i, (v, t) in enumerate(zip(real, transcripts))
+    )
+
+
+def evaluate_video_testset(query_module, relevance_module, testset: list,
+                           blind: bool = False,
+                           report_path: Optional[str] = None,
+                           gen_lm=None, gen_label: Optional[str] = None) -> dict:
+    """Evaluate video pipeline (option B): pdf_content → queries → live YouTube search
+    → relevance + VARK → Gemini text judge (D rubric, per-criterion 0–10).
+
+    query_module    = VideoQueryModule (สร้าง search queries จาก pdf_content)
+    relevance_module = VideoRelevanceModule (เลือกคลิปที่เกี่ยว + จัด VARK)
+    blind ไม่มีผลกับ pipeline นี้ (ไม่มี reference) — เก็บไว้เพื่อ signature เดียวกับตัวอื่น
+    gen_lm/gen_label → generator AI ที่อยากเทียบ (None = global LM เดิม)
+    """
+    import asyncio
+    judge = _get_judge()
+    gen_label = gen_label or DEFAULT_GENERATOR
+    if not os.environ.get("YOUTUBE_API_KEY"):
+        print("⚠️  ไม่มี YOUTUBE_API_KEY — search_youtube จะคืน search-link cards "
+              "(ไม่มี transcript/วิดีโอจริง) judge จะเน้นประเมิน D.1–D.3 (query) เป็นหลัก")
+    mode = "pipeline"
+    print(f"\n🔎 Video eval mode: {mode}  | AI: {gen_label}  ({_judge_label(JUDGE_MODEL_A)})")
+    totals, per_list, feedbacks = [], [], []
     n = len(testset)
     for i, ex in enumerate(testset, 1):
-        pred = module(
-            video_title=ex.video_title,
-            video_channel=ex.video_channel,
-            video_metadata=ex.video_metadata,
-            vark_weight_desc=ex.vark_weight_desc,
+        pdf = ex.pdf_content
+        with _gen_context(gen_lm):
+            qpred = query_module(pdf_content=pdf)
+        queries_raw = qpred.youtube_queries or "[]"
+        queries = _safe_json(queries_raw)
+        if not isinstance(queries, list):
+            # last-resort: extract quoted strings
+            queries = _re.findall(r'"([^"\n]{3,})"', queries_raw) or [pdf[:60]]
+        queries = [str(q) for q in queries][:7]
+
+        try:
+            videos = asyncio.run(search_youtube(queries, max_per_query=3))
+        except Exception as e:
+            print(f"[video_eval] search error: {e}")
+            videos = []
+        video_lines = _build_video_lines(videos)
+
+        if video_lines:
+            with _gen_context(gen_lm):
+                rpred = relevance_module(topic=pdf[:1000], videos_with_transcripts=video_lines)
+            rel_idx = rpred.relevant_indices or "[]"
+            vark_pv = rpred.vark_per_video or "{}"
+        else:
+            rel_idx, vark_pv = "[]", "{}"
+
+        per, total, fb = _video_pipeline_judge(
+            pdf, queries_raw, video_lines, rel_idx, vark_pv, judge,
         )
-        s = _video_judge_a_native(ex, pred, JUDGE_MODEL_A, g_key,
-                                  with_reference=not blind)
-        scores.append(s)
+        per_list.append(per)
+        totals.append(total if per is not None else None)
+        output_blob = (
+            f"queries: {queries_raw}\n"
+            f"relevant_indices: {rel_idx}\n"
+            f"vark_per_video: {vark_pv}\n"
+            f"--- videos searched ---\n{video_lines or '(none)'}"
+        )
+        feedbacks.append({"i": i, "total": total if per is not None else None,
+                          "scores": per,
+                          "output": output_blob,
+                          "feedback": fb})
 
-        line = f"  [{i:>3}/{n}] {name}={s}"
-        expected = getattr(ex, "expected", None)
-        if expected:
-            cmp = _compare_video_to_expected(pred.classification, expected)
-            if cmp.get("parsed"):
-                match_scores.append(cmp["match_score"])
-                bits = []
-                if "vark" in cmp:
-                    bits.append("vark " + ("✓" if cmp["vark"]["exact"]
-                                           else f"~{cmp['vark']['jaccard']:.0%}"))
-                if "subtopics" in cmp:
-                    bits.append(f"subt {cmp['subtopics']['recall']:.0%}")
-                if bits:
-                    line += " | " + " ".join(bits)
-            else:
-                line += " | ⚠ invalid JSON"
-        print(line)
+        # ── print output ที่ AI หามาได้ (ให้เห็นผลลัพธ์ระหว่าง eval) ──
+        shown = f"{total}/10" if per is not None else "ERR"
+        print("─" * 70)
+        print(f"[Video eval] {gen_label} example {i}/{n} — total={shown}  "
+              f"({len(queries)} queries, {'videos' if video_lines else 'no-videos'})")
+        print("[Video eval] output:\n")
+        print(output_blob)
+        print("─" * 70)
+        if fb:
+            print(f"        feedback: {fb}")
 
-    summ = _summarize_judge_scores(scores)
-    print(f"\n📊 Video [{mode}] — LLM-as-Judge (Gemini watches video)")
-    print(f"   Samples         : {n}")
-    print(f"   Judge — {name}")
-    print(f"     scored       : {summ['scored']}/{n}")
-    print(f"     mean (0-2)   : {summ['mean_raw']}")
-    print(f"     normalized   : {summ['mean_norm']}")
-    print(f"     distribution : 0={summ['dist'][0]}  1={summ['dist'][1]}  2={summ['dist'][2]}")
-
-    report = {"module": "Video", "n": n, "judge": {"model": name, **summ}}
-    if match_scores:
-        avg = sum(match_scores) / len(match_scores)
-        report["expected_match_avg"] = round(avg, 3)
-        report["n_labeled"] = len(match_scores)
-        print(f"   Expected-match  : {avg:.3f}  ({len(match_scores)}/{n} labeled)")
+    extra = {"feedbacks": feedbacks, "generator": gen_label}
+    report = _build_criteria_report(
+        f"Video [{mode}]", n, totals, per_list, VIDEO_CRITERIA,
+        JUDGE_MODEL_A.split("/")[-1], mode, extra=extra,
+    )
+    _write_report(report, report_path)
     return report
+
+
+# ──────────────────────────────────────────────
+# 4b. Multi-model comparison — รัน eval ของแต่ละ AI ใน slot แล้วเทียบคะแนน
+# ──────────────────────────────────────────────
+# ชื่อ section ที่จะโชว์ในรายงานเทียบ (target → หัวข้อ)
+TARGET_TITLES = {"vark": "Content", "quiz": "Quiz", "video": "Video"}
+
+
+def _alloc_eval_path(kind: str, used: set) -> str:
+    """จองเลขรัน report ใหม่ (reports/{kind}_eval{n}.json) โดยกันเลขซ้ำใน batch เดียวกัน
+    ใช้ตอน defer การเขียน (ไฟล์ยังไม่ถูกสร้าง) — เช็คทั้งไฟล์จริงและที่จองไว้แล้วใน `used`
+    """
+    os.makedirs("reports", exist_ok=True)
+    n = 1
+    while True:
+        p = os.path.join("reports", f"{kind}_eval{n}.json")
+        if not os.path.exists(p) and p not in used:
+            used.add(p)
+            return p
+        n += 1
+
+
+def _render_comparison_md(results: dict, judge_model: str, mode: str,
+                          model_labels: list[str]) -> str:
+    """สร้างบล็อกเทียบคะแนนของแต่ละ AI (ไว้แปะบนสุดของ report) ตามรูปแบบ:
+        ## Content
+        Typhoon --> 9.7
+        Qwen2.5 --> 9.3
+    results[target][label] = mean_total (0–10) หรือ None ถ้า error
+    """
+    lines: list[str] = []
+    lines.append("# 📊 Model comparison")
+    lines.append("")
+    lines.append(f"- Judge: `{judge_model}`")
+    lines.append(f"- Mode: `{mode}`")
+    lines.append(f"- AI ที่เทียบ (slot): {', '.join(model_labels) or '(none)'}")
+    lines.append("")
+    for target in ("vark", "quiz", "video"):
+        scores = results.get(target)
+        if not scores:
+            continue
+        lines.append(f"## {TARGET_TITLES[target]}")
+        lines.append("")
+        # เรียงจากคะแนนสูง → ต่ำ (ตัว error/None ไปท้ายสุด)
+        ordered = sorted(
+            scores.items(),
+            key=lambda kv: (kv[1] is None, -(kv[1] if kv[1] is not None else 0)),
+        )
+        for label, val in ordered:
+            shown = f"{val}" if val is not None else "ERR"
+            lines.append(f"{label} --> {shown}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def evaluate_models_comparison(targets: list[str],
+                               model_labels: Optional[list[str]] = None,
+                               blind: bool = False) -> dict:
+    """รัน eval ของแต่ละ generator AI ใน slot — รวมทุก AI ไว้ใน report เดียวต่อ target
+    เช่น reports/vark_eval{n}.json + .md = รวม Typhoon + Qwen ในไฟล์เดียว (เรียงตาม parser)
+    พร้อมตารางเทียบคะแนน "บนสุด" ของไฟล์
+    targets       : subset ของ ["vark", "quiz", "video"]
+    model_labels  : list ของ label จาก GENERATOR_MODELS (None = ทั้ง slot)
+    คืน results[target][label] = mean_total
+    """
+    if model_labels is None:
+        model_labels = list(GENERATOR_MODELS)
+    _get_judge()  # ensure Gemini judge พร้อม (raise ถ้าไม่มี GEMINI_API_KEY)
+    mode = "blind" if blind else "ref-augmented"
+
+    results: dict[str, dict] = {}
+    used_labels: list[str] = []
+    # เก็บ report ราย target → list ของ (label, report_dict) เรียงตาม parser
+    target_reports: dict[str, list] = {t: [] for t in targets}
+    for label in model_labels:
+        try:
+            gen_lm = build_generator_lm(label)
+        except Exception as e:
+            print(f"⚠️  ข้าม AI '{label}': {e}")
+            continue
+        used_labels.append(label)
+        # ตั้งเป็น global default ด้วย เผื่อ call ที่ไม่ได้ wrap
+        dspy.settings.configure(lm=gen_lm)
+        print(f"\n{'═'*66}\n▶ Generator AI: {label}  ({gen_lm.model})\n{'═'*66}")
+
+        # report_path=None → ยังไม่เขียนไฟล์ตอนนี้ (defer ไปรวมเป็นไฟล์เดียวต่อ target)
+        if "vark" in targets:
+            rep = evaluate_testset(load_module(), get_testset(), blind=blind,
+                                   report_path=None, gen_lm=gen_lm, gen_label=label)
+            results.setdefault("vark", {})[label] = rep.get("mean_total")
+            target_reports["vark"].append((label, rep))
+        if "quiz" in targets:
+            rep = evaluate_quiz_testset(load_quiz_module(), get_quiz_testset(),
+                                        blind=blind, report_path=None,
+                                        gen_lm=gen_lm, gen_label=label)
+            results.setdefault("quiz", {})[label] = rep.get("mean_total")
+            target_reports["quiz"].append((label, rep))
+        if "video" in targets:
+            rep = evaluate_video_testset(VideoQueryModule(), load_relevance_module(),
+                                         get_video_testset(), report_path=None,
+                                         gen_lm=gen_lm, gen_label=label)
+            results.setdefault("video", {})[label] = rep.get("mean_total")
+            target_reports["video"].append((label, rep))
+
+    # ── รู้คะแนนครบแล้ว → เขียน 1 ไฟล์ต่อ target (รวมทุก AI + comparison บนสุด) ──
+    comparison = _render_comparison_md(results, JUDGE_MODEL_A, mode, used_labels)
+    used_paths: set = set()
+    for target in targets:
+        mreports = target_reports.get(target) or []
+        if not mreports:
+            continue
+        path = _alloc_eval_path(target, used_paths)
+        _write_combined_report(target, mreports, results, JUDGE_MODEL_A,
+                               mode, comparison, path)
+
+    print("\n" + comparison)
+    return results
 
 
 # ──────────────────────────────────────────────
@@ -1152,12 +1507,9 @@ def get_trainset(path: str = "dataset/train/vark_train.json") -> list[dspy.Examp
     return examples
 
 
-def get_valset() -> list[dspy.Example]:
-    return get_trainset("dataset/val/vark_val.json")
-
-
 def get_testset() -> list[dspy.Example]:
-    return get_trainset("dataset/test/vark_test.json")
+    # eval ใช้ train อย่างเดียว (val/test ถูก merge เข้า train แล้ว)
+    return get_trainset()
 
 
 def get_quiz_trainset(path: str = "dataset/train/quiz_train.json") -> list[dspy.Example]:
@@ -1168,7 +1520,6 @@ def get_quiz_trainset(path: str = "dataset/train/quiz_train.json") -> list[dspy.
           "id": "quiz_001",
           "learning_material": "<markdown ของ study guide>",
           "vark_style": {"V":50,"A":10,"R":10,"K":30,"dominant":"V"},
-          "difficulty": "medium",          # easy / medium / hard
           "count": 5,
           "notes": "..."
         }, ...
@@ -1182,33 +1533,26 @@ def get_quiz_trainset(path: str = "dataset/train/quiz_train.json") -> list[dspy.
         kw = {
             "learning_material": r["learning_material"],
             "vark_style": json.dumps(r["vark_style"], ensure_ascii=False),
-            "difficulty": r["difficulty"],
             "count": int(r.get("count", 5)),
         }
         if r.get("expected"):
             kw["expected"] = r["expected"]
         examples.append(
             dspy.Example(**kw).with_inputs(
-                "learning_material", "vark_style", "difficulty", "count"
+                "learning_material", "vark_style", "count"
             )
         )
     return examples
 
 
-def get_quiz_valset() -> list[dspy.Example]:
-    return get_quiz_trainset("dataset/val/quiz_val.json")
-
-
 def get_quiz_testset() -> list[dspy.Example]:
-    return get_quiz_trainset("dataset/test/quiz_test.json")
-
-
-def get_video_valset() -> list[dspy.Example]:
-    return get_video_trainset("dataset/val/video_val.json")
+    # eval ใช้ train อย่างเดียว (val/test ถูก merge เข้า train แล้ว)
+    return get_quiz_trainset()
 
 
 def get_video_testset() -> list[dspy.Example]:
-    return get_video_trainset("dataset/test/video_test.json")
+    # eval ใช้ train อย่างเดียว
+    return get_video_trainset()
 
 
 def _vark_to_desc(vark: dict) -> str:
@@ -1219,220 +1563,32 @@ def _vark_to_desc(vark: dict) -> str:
 
 def get_video_trainset(path: str = "dataset/train/video_train.json") -> list[dspy.Example]:
     """
-    Video classifier trainset — รองรับ 2 รูปแบบ:
-
-    A) Compact (ผู้ใช้กรอกเอง):
-       {
-         "id": "vid_001",
-         "video_url": "https://www.youtube.com/watch?v=...",
-         "vark_style": {"V":60,"A":10,"R":10,"K":20,"dominant":"V"}
-       }
-       → ต้องรัน `python enrich_video_dataset.py <path>` ก่อน
-         เพื่อให้ YouTube API เติม video_title/channel/metadata
-
-    B) Full (หลัง enrich แล้ว):
-       เพิ่ม video_title, video_channel, video_metadata, video_id, collected_at
-
-    vark_style (JSON) จะถูกแปลงเป็น vark_weight_desc โดยอัตโนมัติ
-    หรือใส่ vark_weight_desc string ตรงๆ ก็ได้
+    Video pipeline trainset — schema ใหม่: pdf_content อย่างเดียว
+      [
+        { "id": "vid_001", "pdf_content": "<เนื้อหาที่สกัดจาก PDF>" },
+        ...
+      ]
+    pipeline (option B) จะ: pdf_content → สร้าง YouTube queries → ค้นหาจริง
+    → เลือกคลิปที่เกี่ยว + จัด VARK → ประเมินด้วย Gemini judge (D rubric)
+    ไม่มี gold label — judge ทำงานแบบ reference-free (`expected` ใส่ได้แต่ optional)
     """
     with open(path, encoding="utf-8") as f:
         rows = json.load(f)
 
     examples = []
     for r in rows:
-        # ─ vark: รับทั้ง JSON หรือ pre-formatted string ─
-        if r.get("vark_weight_desc"):
-            desc = r["vark_weight_desc"]
-        elif isinstance(r.get("vark_style"), dict):
-            desc = _vark_to_desc(r["vark_style"])
-        else:
+        pdf = r.get("pdf_content", "")
+        if not pdf or not str(pdf).strip():
             raise ValueError(
-                f"Entry {r.get('id','?')}: ต้องมี 'vark_style' (JSON) "
-                f"หรือ 'vark_weight_desc' (string)"
+                f"Entry {r.get('id','?')}: ต้องมี 'pdf_content' (เนื้อหาจาก PDF)"
             )
-
-        # ─ check enrichment status ─
-        title = r.get("video_title", "")
-        channel = r.get("video_channel", "")
-        if (not title) or (not channel) or "REPLACE" in title or "REPLACE" in channel:
-            raise ValueError(
-                f"Entry {r.get('id','?')}: ยังไม่ enrich — ขาด video_title/channel.\n"
-                f"  รัน: python enrich_video_dataset.py {path}"
-            )
-
-        kw = {
-            "video_title": title,
-            "video_channel": channel,
-            "video_metadata": r.get("video_metadata", ""),
-            "vark_weight_desc": desc,
-            # video_url ใช้สำหรับ Gemini judge ดู YouTube — ไม่ใช่ input ของ classifier
-            "video_url": r.get("video_url", ""),
-        }
+        kw = {"pdf_content": str(pdf)}
         if r.get("expected"):
             kw["expected"] = r["expected"]
         examples.append(
-            dspy.Example(**kw).with_inputs(
-                "video_title", "video_channel", "video_metadata",
-                "vark_weight_desc"
-            )
+            dspy.Example(**kw).with_inputs("pdf_content")
         )
     return examples
-
-# ──────────────────────────────────────────────
-# 6. Compile (ใช้ VARKModule ตัวเต็ม + BootstrapFewShot)
-#     compile target ต้องเป็น VARKModule (2-stage) เพื่อให้ demos ที่บันทึก
-#     มี field ครบ (key_concepts, teaching_strategy, image_queries)
-#     ตรงกับ signature ที่ runtime ใช้จริง
-# ──────────────────────────────────────────────
-def compile_with_gepa(
-    model_path: str = "vark_model.json",
-    api_key: Optional[str] = None,
-    auto: Optional[str] = "light",
-    max_metric_calls: Optional[int] = None,
-):
-    """GEPA optimizer — reflective prompt evolution
-    ใช้ judge reasoning เป็น feedback ให้ reflection_lm propose prompt ใหม่
-
-    Budget (เลือก 1):
-      auto: 'light' / 'medium' / 'heavy'   (auto-budget; default 'light')
-      max_metric_calls: int                 (override → ตั้ง budget เอง เช่น 30)
-    """
-    configure_lm(api_key)
-    from dspy.teleprompt import GEPA
-
-    trainset = get_trainset()
-    valset = get_valset()
-
-    # Reflection LM — ใช้ Gemini (เร็ว+ฟรี) แทน Typhoon (ช้า)
-    # GEPA จะเรียก reflection LM หลายครั้งเพื่อ propose prompt ใหม่
-    # Gemini Flash Lite สรุปเหตุผลและเขียน prompt ได้ดี + รวดเร็ว
-    g_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY ")
-    if g_key:
-        reflection_lm = dspy.LM(
-            model=JUDGE_MODEL_A,
-            api_key=g_key.strip(),
-            max_tokens=8000,
-            temperature=1.0,
-            cache=False,
-        )
-        print(f"[GEPA] reflection_lm = {JUDGE_MODEL_A} (Gemini — fast)")
-    else:
-        reflection_lm = dspy.LM(
-            model="openai/typhoon-v2.5-30b-a3b-instruct",
-            api_key=os.environ.get("TYPHOON_API_KEY") or api_key,
-            api_base="https://api.opentyphoon.ai/v1",
-            max_tokens=8000,
-            temperature=1.0,
-            cache=False,
-        )
-        print("[GEPA] reflection_lm = Typhoon (fallback — no GEMINI_API_KEY)")
-
-    gepa_kwargs = dict(
-        metric=vark_metric_gepa,
-        reflection_lm=reflection_lm,
-        reflection_minibatch_size=2,
-        track_stats=True,
-        warn_on_score_mismatch=False,
-        seed=0,
-    )
-    if max_metric_calls is not None:
-        gepa_kwargs["max_metric_calls"] = max_metric_calls
-        print(f"[GEPA] budget: max_metric_calls={max_metric_calls}")
-    else:
-        gepa_kwargs["auto"] = auto
-        print(f"[GEPA] budget: auto={auto}")
-
-    teleprompter = GEPA(**gepa_kwargs)
-    compiled = teleprompter.compile(VARKModule(), trainset=trainset, valset=valset)
-    compiled.save(model_path)
-    print(f"✅ GEPA-optimized model saved to {model_path}")
-    return compiled
-
-
-def compile_and_save(model_path: str = "vark_model.json", api_key: Optional[str] = None):
-    configure_lm(api_key)
-
-    from dspy.teleprompt import BootstrapFewShot
-
-    trainset = get_trainset()
-
-    # trainset order: V V K R K R A A (8 examples)
-    # ก่อนหน้านี้ใช้ max_bootstrapped_demos=4 → หยุดที่ index 0–3 (V,V,K,R)
-    # ทำให้ A ไม่เคยถูก bootstrap เลย — runtime จึงไม่มี demo สไตล์ A
-    # ปรับเป็น 8 เพื่อครอบคลุมทุก style
-    #
-    # max_labeled_demos=0 — get_trainset() คืน example ที่มีแค่ input (ไม่มี
-    # learning_material/youtube_queries) จึงใช้เป็น labeled demo ไม่ได้
-    #
-    # metric=vark_metric (LLM-as-Judge)
-    #   Judge A: Gemini 3.1 flash lite  via Google AI Studio (GEMINI_API_KEY)
-    #   Judge B: GPT-OSS                via OpenRouter        (GPTOSS_API_KEY)
-    # ทั้ง 2 keys โหลดจาก .env อัตโนมัติ — ถ้าหาย key ใด key หนึ่งจะ fallback เป็น F1
-    # metric_threshold=0.5 → เฉลี่ย 2 judges ต้อง ≥ 0.5 (≈ ทั้งคู่ให้อย่างน้อย 1)
-    # หมายเหตุ: compile รอบนี้จะเรียก judge API หลายครั้ง (~ 2 × ตัวอย่าง × รอบ)
-    teleprompter = BootstrapFewShot(
-        metric=vark_metric,
-        metric_threshold=0.5,
-        max_bootstrapped_demos=8,
-        max_labeled_demos=0,
-        max_rounds=2,
-    )
-    compiled = teleprompter.compile(VARKModule(), trainset=trainset)
-
-    compiled.save(model_path)
-    print(f"✅ Compiled model saved to {model_path}")
-    return compiled
-
-
-def compile_quiz_and_save(
-    model_path: str = "quiz_model.json",
-    api_key: Optional[str] = None,
-    trainset_path: str = "dataset/train/quiz_train.json",
-):
-    """Compile QuizModule ด้วย BootstrapFewShot + quiz_metric (LLM-as-Judge)"""
-    configure_lm(api_key)
-    from dspy.teleprompt import BootstrapFewShot
-
-    trainset = get_quiz_trainset(trainset_path)
-    print(f"📚 Quiz trainset: {len(trainset)} examples")
-
-    teleprompter = BootstrapFewShot(
-        metric=quiz_metric,
-        metric_threshold=0.5,
-        max_bootstrapped_demos=min(8, len(trainset)),
-        max_labeled_demos=0,
-        max_rounds=2,
-    )
-    compiled = teleprompter.compile(QuizModule(), trainset=trainset)
-    compiled.save(model_path)
-    print(f"✅ Quiz model saved to {model_path}")
-    return compiled
-
-
-def compile_video_and_save(
-    model_path: str = "video_classifier_model.json",
-    api_key: Optional[str] = None,
-    trainset_path: str = "dataset/train/video_train.json",
-):
-    """Compile VideoClassifierModule ด้วย BootstrapFewShot + video_metric (LLM-as-Judge)"""
-    configure_lm(api_key)
-    from dspy.teleprompt import BootstrapFewShot
-
-    trainset = get_video_trainset(trainset_path)
-    print(f"📚 Video trainset: {len(trainset)} examples")
-
-    teleprompter = BootstrapFewShot(
-        metric=video_metric,
-        metric_threshold=0.5,
-        max_bootstrapped_demos=min(8, len(trainset)),
-        max_labeled_demos=0,
-        max_rounds=2,
-    )
-    compiled = teleprompter.compile(VideoClassifierModule(), trainset=trainset)
-    compiled.save(model_path)
-    print(f"✅ Video classifier model saved to {model_path}")
-    return compiled
 
 
 # ──────────────────────────────────────────────
@@ -1440,28 +1596,26 @@ def compile_video_and_save(
 # ──────────────────────────────────────────────
 def load_module(model_path: str = "vark_model.json") -> VARKModule:
     """
-    Load compiled demos จาก vark_model.json เข้า VARKModule (2-stage)
+    Load compiled demos จาก vark_model.json เข้า VARKModule (single stage)
 
     Strategy:
       1) ใช้ DSPy native module.load() ก่อน — handle JSON layout ทุก version
-         และ inject demos เข้าทั้ง analyze + generate ให้อัตโนมัติ
-      2) Fallback: parse JSON เองและ inject แยกแต่ละ stage
-         (รองรับไฟล์เก่าที่ compile ด้วย VARKModuleLite ซึ่งเก็บ demos
-          ใต้ key 'generate' เท่านั้น)
+         และ inject demos เข้า generate ให้อัตโนมัติ
+      2) Fallback: parse JSON เองแล้ว inject เข้า generate
     """
     module = VARKModule()
 
     if not os.path.exists(model_path):
-        print("⚠️  No compiled model found — using zero-shot module")
+        # zero-shot คือโหมดปกติแล้ว (prompt อยู่ใน signature ครบ ไม่ต้อง compile)
+        print("ℹ️  ใช้ zero-shot VARKModule (prompt จาก signature — ไม่ต้อง compile)")
         return module
 
     # ── Path 1: DSPy native loader ─────────────────────────────
     try:
         module.load(model_path)
-        a = len(getattr(module.analyze.predict, "demos", []) or [])
         g = len(getattr(module.generate.predict, "demos", []) or [])
-        if a or g:
-            print(f"✅ Loaded VARKModule (analyze: {a} demos, generate: {g} demos)")
+        if g:
+            print(f"✅ Loaded VARKModule (generate: {g} demos)")
             return module
         print("[load_module] native load: no demos populated, falling back to manual parse")
     except Exception as e:
@@ -1481,15 +1635,11 @@ def load_module(model_path: str = "vark_model.json") -> VARKModule:
             flat = state.get(f"{stage}.predict.demos") or state.get(f"{stage}.demos")
             return flat or []
 
-        analyze_raw  = _extract("analyze")
         generate_raw = _extract("generate")
-
-        loaded_a = _inject_demos(module.analyze,  analyze_raw)  if analyze_raw  else False
         loaded_g = _inject_demos(module.generate, generate_raw) if generate_raw else False
 
-        if loaded_a or loaded_g:
-            print(f"✅ Manual injection — analyze: {len(analyze_raw) if loaded_a else 0} demos, "
-                  f"generate: {len(generate_raw) if loaded_g else 0} demos")
+        if loaded_g:
+            print(f"✅ Manual injection — generate: {len(generate_raw)} demos")
         else:
             print("⚠️  No demos found — using zero-shot VARKModule")
             print(f"    Full JSON structure: {json.dumps(state, ensure_ascii=False)[:400]}")
@@ -1563,6 +1713,19 @@ def load_classifier_module(
     return module
 
 
+def load_relevance_module(
+    model_path: str = "video_relevance_model.json",
+) -> "VideoRelevanceModule":
+    """Load VideoRelevanceModule — zero-shot fallback ถ้าไม่มีไฟล์"""
+    module = VideoRelevanceModule()
+    demos = _load_demos_from_json(model_path)
+    if demos and _inject_demos(module.judge, demos):
+        print(f"✅ VideoRelevanceModule: loaded {len(demos)} demos from {model_path}")
+    else:
+        print(f"ℹ️  VideoRelevanceModule: zero-shot mode (no demos at {model_path})")
+    return module
+
+
 # ──────────────────────────────────────────────
 # 8. Entrypoint
 # ──────────────────────────────────────────────
@@ -1570,7 +1733,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="DSPy pipeline: enrich → compile → evaluate (vark / quiz / video)"
+        description="DSPy pipeline: enrich → evaluate (vark / quiz / video). "
+                    "ทุก module เป็น zero-shot + Gemini judge eval (ไม่มี compile step)"
     )
     parser.add_argument(
         "--target", type=str, default="vark",
@@ -1579,6 +1743,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--api-key", type=str, default=None,
                         help="Typhoon API Key (else read TYPHOON_API_KEY from env)")
+    parser.add_argument("--models", type=str, default=None,
+                        help="comma-list ของ AI ใน slot GENERATOR_MODELS ที่จะเทียบกัน "
+                             "เช่น --models Typhoon,Qwen2.5 (ละไว้ = ทุกตัวใน slot). "
+                             "เพิ่ม/ลด model ได้ในตัวแปร GENERATOR_MODELS")
     parser.add_argument("--output", type=str, default=None,
                         help="output model path (single target only)")
     parser.add_argument("--enrich", action="store_true",
@@ -1590,17 +1758,6 @@ if __name__ == "__main__":
     parser.add_argument("--eval-blind", action="store_true",
                         help="evaluate test set in blind mode "
                              "(judges do NOT see expected) — combine with --eval to run both")
-    parser.add_argument("--skip-compile", action="store_true",
-                        help="skip compile; load existing model.json — pair with --eval / --eval-blind")
-    parser.add_argument("--optimizer", type=str, default="bootstrap",
-                        choices=["bootstrap", "gepa"],
-                        help="vark compile optimizer (default: bootstrap)")
-    parser.add_argument("--gepa-budget", type=str, default="light",
-                        choices=["light", "medium", "heavy"],
-                        help="GEPA budget level (only when --optimizer gepa)")
-    parser.add_argument("--gepa-max-calls", type=int, default=None,
-                        help="GEPA explicit budget (overrides --gepa-budget). "
-                             "เช่น 30 = เร็วมาก, 60 = ปานกลาง")
     args = parser.parse_args()
 
     do_vark  = args.target in ("vark", "all")
@@ -1611,6 +1768,7 @@ if __name__ == "__main__":
     vark_path  = (args.output if args.target == "vark"  else None) or "vark_model.json"
     quiz_path  = (args.output if args.target == "quiz"  else None) or "quiz_model.json"
     video_path = (args.output if args.target == "video" else None) or "video_classifier_model.json"
+    video_relevance_path = "video_relevance_model.json"
 
     # ── 1. Enrich (video only) ─────────────────────────────────
     if args.enrich:
@@ -1621,30 +1779,14 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             import enrich_video_dataset as evd
-            for p in (
-                "dataset/train/video_train.json",
-                "dataset/val/video_val.json",
-                "dataset/test/video_test.json",
-            ):
-                evd.enrich_file(p)
+            # ใช้ train อย่างเดียว (ไม่ใช้ val/test แยก)
+            evd.enrich_file("dataset/train/video_train.json")
 
-    # ── 2. Compile ──────────────────────────────────────────────
+    # ── 2. ทุก module เป็น zero-shot (ไม่มี compile step แล้ว) ──
+    # การทำงานหลักคือ eval ด้วย Gemini judge บน zero-shot module / โมเดลที่โหลด
     vark_module = quiz_module_obj = video_module_obj = None
-    if not args.skip_compile:
-        if do_vark:
-            if args.optimizer == "gepa":
-                vark_module = compile_with_gepa(
-                    model_path=vark_path,
-                    api_key=args.api_key,
-                    auto=args.gepa_budget if args.gepa_max_calls is None else None,
-                    max_metric_calls=args.gepa_max_calls,
-                )
-            else:
-                vark_module = compile_and_save(model_path=vark_path, api_key=args.api_key)
-        if do_quiz:
-            quiz_module_obj = compile_quiz_and_save(model_path=quiz_path, api_key=args.api_key)
-        if do_video:
-            video_module_obj = compile_video_and_save(model_path=video_path, api_key=args.api_key)
+    if not (args.eval or args.eval_blind):
+        print("ℹ️  ไม่มี compile step — ใช้ --eval / --eval-blind เพื่อประเมินด้วย Gemini judge")
 
     # ── 3. Evaluate testset ─────────────────────────────────────
     eval_modes: list[bool] = []  # blind flag per pass
@@ -1654,21 +1796,17 @@ if __name__ == "__main__":
         eval_modes.append(True)          # blind
 
     if eval_modes:
-        # ตอน skip-compile + eval ยังไม่ได้ configure LM — เรียกเอง
-        if args.skip_compile:
-            configure_lm(args.api_key)
-        if do_vark:
-            mod = vark_module or load_module(vark_path)
-            ts = get_testset()
-            for blind in eval_modes:
-                evaluate_testset(mod, ts, blind=blind)
-        if do_quiz:
-            mod = quiz_module_obj or load_quiz_module(quiz_path)
-            ts = get_quiz_testset()
-            for blind in eval_modes:
-                evaluate_quiz_testset(mod, ts, blind=blind)
-        if do_video:
-            mod = video_module_obj or load_classifier_module(video_path)
-            ts = get_video_testset()
-            for blind in eval_modes:
-                evaluate_video_testset(mod, ts, blind=blind)
+        # เลือก AI จาก slot — ละ --models ไว้ = เทียบทุกตัวใน GENERATOR_MODELS
+        if args.models:
+            model_labels = [m.strip() for m in args.models.split(",") if m.strip()]
+        else:
+            model_labels = list(GENERATOR_MODELS)
+        # --api-key override → เซ็ตเข้า env ของ Typhoon ให้ build_generator_lm หยิบไปใช้
+        if args.api_key:
+            os.environ["TYPHOON_API_KEY"] = args.api_key
+
+        targets = [t for t, on in
+                   (("vark", do_vark), ("quiz", do_quiz), ("video", do_video)) if on]
+        # video pipeline ไม่มี reference → blind ไม่มีผล แต่ orchestrator จัดการเอง
+        for blind in eval_modes:
+            evaluate_models_comparison(targets, model_labels, blind=blind)

@@ -60,7 +60,7 @@
     "source": "manual",
     "split": "val",
     "expected": {
-      "rationale": "K dominant + R/A secondary. Expected step-by-step worked examples (แทนค่าทีละขั้น) ตามด้วยโจทย์ลองทำ 3-4 ข้อ พร้อมปุ่ม ```เฉลย``` แต่ละข้อ และเปรียบเทียบกับดอกเบี้ยคงต้น"
+      "rationale": "K dominant + R/A secondary. Expected step-by-step worked examples (แทนค่าทีละขั้น) ตามด้วยโจทย์ลองทำ 3-4 ข้อ พร้อม'ans' answer block แต่ละข้อ และเปรียบเทียบกับดอกเบี้ยคงต้น"
     }
   }
 ]

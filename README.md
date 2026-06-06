@@ -1,7 +1,7 @@
 # VARK Personalized Study System
 
 ระบบสร้างสื่อการเรียนรู้แบบ AI ที่ปรับให้ตรงกับสไตล์ VARK ของผู้เรียน  
-ใช้ **DSPy + Gemini 1.5 Flash** เป็น AI Layer, **FastAPI** เป็น Backend, และ HTML/JS เป็น Frontend
+ใช้ **DSPy + Typhoon,GPTOSS. Gemini Judge** เป็น AI Layer, **FastAPI** เป็น Backend, และ HTML/JS เป็น Frontend
 
 ---
 
@@ -55,19 +55,6 @@ export YOUTUBE_API_KEY="AIza..."
 
 ### 3. (ตัวเลือก) Compile DSPy Model ก่อนรัน
 
-```bash
-
-#window
-python dspy_module.py --api-key TYPHOON_API_KEY --output vark_model.json
-```
-
-ถ้าไม่รัน ระบบจะใช้ zero-shot โดยอัตโนมัติ
-
----
-feedback real
-curl -X POST http://localhost:8000/recompile
-
-## การรัน
 
 ### Start Backend (FastAPI)
 
@@ -128,17 +115,13 @@ Frontend จะอยู่ที่ `http://localhost:3000`
 
 ## Re-training Flow
 
-เมื่อมี feedback เพียงพอ (≥ 3 liked sessions):
+ทุก module (vark / quiz / video) เป็น **zero-shot** — prompt อยู่ใน signature ครบ
+ไม่มี compile/optimizer step แล้ว (GEPA และ BootstrapFewShot ถูกลบ) การปรับปรุงทำผ่าน
+การประเมินด้วย Gemini judge แล้วแก้ prompt ใน signature โดยตรง
 
 ```bash
-curl -X POST http://localhost:8000/recompile
-```
-
-หรือเรียกใช้ผ่าน Python:
-
-```python
-import dspy_module
-dspy_module.compile_and_save(model_path="vark_model.json")
+# ประเมินผล vark ทั้งแบบ ref-augmented และ blind
+python dspy_module.py --target vark --eval --eval-blind
 ```
 
 ---
@@ -166,30 +149,27 @@ const API_BASE = 'http://localhost:8000';
 ```
 เป็น URL ของ server จริง เช่น `https://your-domain.com`
 
-#### ทดลอง
+## 🔎 ประเมินโมเดล (Evaluate) — Shortcut
 
-   Commands ที่ใช้บ่อย:
+ก่อนรันทุกครั้ง (Windows) ตั้ง encoding ก่อน:
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+```
 
-  $env:PYTHONIOENCODING = "utf-8"
-  #  Target เดียว, compile แล้ว eval blind ทันที
-  python dspy_module.py --target vark --eval-blind
+API keys ที่ต้องมีใน `.env`: `TYPHOON_API_KEY`, `GEMINI_API_KEY`, `GPTOSS_API_KEY`
 
-  # Blind eval อย่างเดียว (judges ไม่เห็น expected)
-  python dspy_module.py --target all --skip-compile --eval-blind
+ทุก module เป็น zero-shot (ไม่มี compile step) — คำสั่งหลักคือการประเมินด้วย Gemini judge:
 
-  # Reference-augmented eval อย่างเดียว (เดิม)
-  python dspy_module.py --target all --skip-compile --eval
+| ต้องการ | คำสั่ง |
+|---------|--------|
+| วัดผล Study Guide (ref-augmented) | `python dspy_module.py --target vark --eval` |
+| วัดผล Study Guide (blind) | `python dspy_module.py --target vark --eval-blind` |
+| วัดผลทั้งสองแบบ | `python dspy_module.py --target vark --eval --eval-blind` |
+| วัดผล Quiz | `python dspy_module.py --target quiz --eval-blind` |
+| วัดผลทั้งหมด | `python dspy_module.py --target all --eval --eval-blind` |
 
-  # ★ ที่อยากใช้ — รันคู่กันเทียบ gap
-  python dspy_module.py --target all --skip-compile --eval --eval-blind
+รายงานผลถูกเซฟใต้ `reports/` (เช่น `reports/vark_eval1.json` + `.md`)
 
-  # Full pipeline: enrich → compile → eval ทั้ง 2 modes
-  python dspy_module.py --target all --enrich --eval --eval-blind
+`--target` เลือก `vark` / `quiz` / `video` / `all` ได้
 
-  # Target เดียว, compile แล้ว blind eval ทันที
-  python dspy_module.py --target video --eval-blind
-
-  # Try GEPA
-  python dspy_module.py --target vark --optimizer gepa --gepa-max-calls 30
-  # Bootstrap
-  python dspy_module.py --target vark --optimizer bootstrap
+---

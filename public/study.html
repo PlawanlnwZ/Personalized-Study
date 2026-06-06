@@ -662,8 +662,20 @@ body.col-resizing * { pointer-events: none !important; }
   opacity: 0.7;
 }
 
-/* Hidden-answer block — rendered when the model emits a fenced
-   ```เฉลย ... ``` (or `answer`/`solution`/`spoiler`) block. */
+/* Display-math block (\[ ... \] / $$ ... $$) — KaTeX renders the inner LaTeX.
+   Allow horizontal scroll so long equations don't overflow narrow columns. */
+.guide-content .math-block {
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Hidden-answer block — rendered when the model emits a paragraph
+   delimited by 'ans' markers on their own line:
+       'ans'
+       <answer body>
+       'ans'
+   Legacy fenced ```เฉลย``` blocks are still recognised for back-compat. */
 .guide-content .answer-block {
   margin: 8px 0 14px;
   border: 1px solid rgba(245,200,66,0.35);
@@ -706,49 +718,6 @@ body.col-resizing * { pointer-events: none !important; }
   background: rgba(230,169,31,0.04);
 }
 .guide-content .answer-body > *:last-child { margin-bottom: 6px; }
-
-/* Visual Image Gallery */
-.visual-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 6px;
-  margin: 14px 0 6px;
-}
-.visual-img-card {
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--border);
-  aspect-ratio: 4/3;
-  cursor: pointer;
-  transition: border-color 0.18s, transform 0.18s;
-}
-.visual-img-card:hover { border-color: var(--accent-v); transform: scale(1.02); }
-.visual-img-card img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.visual-img-alt {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--card2);
-  font-size: 10px; color: var(--text-muted);
-  text-align: center; padding: 6px; line-height: 1.4;
-}
-.visual-img-source {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  background: rgba(0,0,0,0.65);
-  font-size: 9px; color: rgba(255,255,255,0.6);
-  padding: 3px 6px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.visual-gallery-header {
-  font-size: 10px; font-weight: 700; letter-spacing: 1px;
-  text-transform: uppercase; font-family: 'IBM Plex Mono', monospace;
-  color: var(--accent-v); margin-bottom: 7px; display: flex; align-items: center; gap: 5px;
-}
 
 /* Like bar */
 .like-bar {
@@ -1195,6 +1164,91 @@ body.col-resizing * { pointer-events: none !important; }
   .narrator-mini { font-size: 11px; gap: 7px; }
   .narrator-mini .n-avatar { font-size: 15px; }
 }
+
+/* ── Integrated section: embedded video + quiz per topic ── */
+.study-section-wrap {
+  padding: 10px 16px 20px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 4px;
+}
+.study-section-wrap:last-child { border-bottom: none; }
+
+.section-video-area {
+  margin: 14px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+}
+.section-video-row {
+  display: flex;
+  align-items: stretch;
+}
+.section-video-thumb {
+  width: 120px;
+  min-width: 120px;
+  object-fit: cover;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: block;
+  background: var(--surface);
+}
+.section-video-embed {
+  display: none;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+}
+.section-video-embed iframe { width: 100%; height: 100%; border: none; }
+.section-video-info {
+  padding: 8px 10px;
+  flex: 1;
+  min-width: 0;
+}
+.section-video-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.section-video-channel { font-size: 10px; color: var(--text-dim); }
+
+.section-quiz-area {
+  margin: 10px 0 0;
+  background: rgba(108,143,255,0.04);
+  border: 1px solid rgba(108,143,255,0.15);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+}
+.section-quiz-header {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.inline-q-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  transition: border-color 0.25s;
+}
+.inline-q-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
 </style>
 </head>
 <body>
@@ -1287,8 +1341,8 @@ body.col-resizing * { pointer-events: none !important; }
 
     <div class="study-tabs">
       <button class="study-tab active" onclick="switchTab('guide', this)">📖 Study Guide</button>
-      <button class="study-tab" onclick="switchTab('quiz', this)">🧪 Quiz</button>
       <button class="study-tab" onclick="switchTab('videos', this)">▶ Videos</button>
+      <button class="study-tab" onclick="switchTab('quiz', this)">🧪 Quiz</button>
       <div class="vark-legend" id="vark-legend" style="display:none;">
         <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-v)"></div><span>V</span></div>
         <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-a)"></div><span>A</span></div>
@@ -1308,106 +1362,51 @@ body.col-resizing * { pointer-events: none !important; }
 
     <div class="study-body">
 
-      <!-- Guide Tab -->
+      <!-- Unified Study Panel -->
       <div class="tab-panel active" id="panel-guide">
         <div class="empty-state" id="guide-empty">
           <span class="es-icon">🤖</span>
           <p>เลือก PDF แล้วกด <strong>Generate</strong><br>เพื่อสร้างสื่อการเรียนรู้</p>
         </div>
-        <div id="guide-skeleton" style="display:none;">
+        <div id="guide-skeleton" style="display:none;padding:16px;">
           <div class="skeleton wide"></div><div class="skeleton med"></div>
           <div class="skeleton wide"></div><div class="skeleton short"></div>
           <div class="skeleton wide"></div><div class="skeleton med"></div>
         </div>
         <div id="guide-vark-sections" style="display:none;"></div>
-        <div class="like-bar" id="like-bar" style="display:none;">
+        <div class="like-bar" id="like-bar" style="display:none;margin:0 16px 16px;">
           <span class="like-bar-label">📊 เนื้อหานี้ตรงกับสไตล์คุณไหม?</span>
           <button class="btn-like" id="btn-like" onclick="toggleLike()">👍 ถูกใจ</button>
         </div>
       </div>
 
-      <!-- Quiz Tab -->
-      <div class="tab-panel" id="panel-quiz">
-
-        <!-- Empty state -->
-        <div class="empty-state" id="quiz-empty">
-          <span class="es-icon">🧪</span>
-          <p>Generate เนื้อหาก่อน แล้วมา<br><strong>ทดสอบความเข้าใจ</strong>ที่นี่</p>
-        </div>
-
-        <!-- Config panel (shown after generate) -->
-        <div id="quiz-config" style="display:none; padding:20px 16px;">
-
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:14px;">⚙ ตั้งค่า Quiz</div>
-
-          <!-- Difficulty -->
-          <div style="margin-bottom:16px;">
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">ระดับความยาก</div>
-            <div style="display:flex;gap:8px;">
-              <button class="quiz-diff-btn active-easy" id="diff-easy"   onclick="setDiff('easy')">
-                🟢 Easy<br><span style="font-size:10px;opacity:0.7;">พื้นฐาน / จำ</span>
-              </button>
-              <button class="quiz-diff-btn" id="diff-medium" onclick="setDiff('medium')">
-                🟡 Medium<br><span style="font-size:10px;opacity:0.7;">เข้าใจ / ประยุกต์</span>
-              </button>
-              <button class="quiz-diff-btn" id="diff-hard"   onclick="setDiff('hard')">
-                🔴 Hard<br><span style="font-size:10px;opacity:0.7;">วิเคราะห์ / debug</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Question count -->
-          <div style="margin-bottom:20px;">
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">จำนวนคำถาม</div>
-            <div style="display:flex;gap:6px;">
-              <button id="qc-3"  onclick="setQCount(3)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">3</button>
-              <button id="qc-5"  onclick="setQCount(5)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">5</button>
-              <button id="qc-7"  onclick="setQCount(7)"  style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">7</button>
-              <button id="qc-10" onclick="setQCount(10)" style="padding:6px 14px;background:var(--card);border:1.5px solid var(--border);color:var(--text-muted);border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;">10</button>
-            </div>
-          </div>
-
-          <!-- Start button -->
-          <button onclick="startQuiz()" id="btn-start-quiz"
-            style="width:100%;padding:11px;background:linear-gradient(135deg,var(--accent-r),#4ab89a);border:none;border-radius:9px;color:#fff;font-family:'Sarabun',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;letter-spacing:0.5px;">
-            ✦ เริ่ม Quiz
-          </button>
-        </div>
-
-        <!-- Loading -->
-        <div id="quiz-skeleton" style="display:none;padding:16px;">
-          <div class="skeleton wide" style="height:14px;margin-bottom:10px;"></div>
-          <div class="skeleton med"  style="height:12px;margin-bottom:8px;"></div>
-          <div class="skeleton wide" style="height:14px;margin-bottom:10px;margin-top:18px;"></div>
-          <div class="skeleton short" style="height:12px;margin-bottom:8px;"></div>
-        </div>
-
-        <!-- Questions -->
-        <div id="quiz-questions" style="display:none;"></div>
-
-        <!-- Result bar -->
-        <div id="quiz-result-bar" style="display:none;margin:16px;padding:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);text-align:center;">
-          <div id="quiz-score-text" style="font-size:24px;font-weight:800;color:var(--accent-r);margin-bottom:6px;"></div>
-          <div id="quiz-score-sub"  style="font-size:12px;color:var(--text-muted);margin-bottom:14px;"></div>
-          <button onclick="resetQuiz()"
-            style="padding:8px 22px;background:transparent;border:1.5px solid var(--border);color:var(--text-muted);font-family:'Sarabun',sans-serif;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;transition:all 0.2s;">
-            🔄 ทำใหม่
-          </button>
-        </div>
-
-      </div>
-
-      <!-- Videos Tab -->
+      <!-- Videos tab -->
       <div class="tab-panel" id="panel-videos">
         <div class="empty-state" id="videos-empty">
-          <span class="es-icon">▶️</span>
-          <p>Generate ก่อนเพื่อดูวิดีโอแนะนำ</p>
+          <span class="es-icon">▶</span>
+          <p>เลือก PDF แล้วกด <strong>Generate</strong><br>เพื่อรับวิดีโอแนะนำ</p>
         </div>
         <div id="yt-grid" class="yt-grid" style="display:none;"></div>
-        <div class="transcribe-panel" id="transcribe-panel" style="display:none;">
-          <div class="transcribe-title">🎙️ Speech-to-Text</div>
-          <div class="transcribe-body" id="transcribe-body">กด 🎙️ แล้วพูดเพื่อ transcribe</div>
+      </div>
+
+      <!-- Quiz tab -->
+      <div class="tab-panel" id="panel-quiz">
+        <div class="empty-state" id="quiz-empty">
+          <span class="es-icon">🧪</span>
+          <p>เลือก PDF แล้วกด <strong>Generate</strong><br>เพื่อสร้างแบบทดสอบ</p>
         </div>
+        <div id="quiz-skeleton" style="display:none;padding:8px;">
+          <div class="skeleton wide"></div><div class="skeleton med"></div>
+          <div class="skeleton wide"></div><div class="skeleton short"></div>
+          <div class="skeleton wide"></div><div class="skeleton med"></div>
+        </div>
+        <div id="quiz-list" style="display:none;"></div>
+      </div>
+
+      <!-- Speech transcription panel (stays accessible) -->
+      <div class="transcribe-panel" id="transcribe-panel" style="display:none;margin:0 16px 16px;">
+        <div class="transcribe-title">🎙️ Speech-to-Text</div>
+        <div class="transcribe-body" id="transcribe-body">กด 🎙️ แล้วพูดเพื่อ transcribe</div>
       </div>
 
     </div>
@@ -1419,6 +1418,9 @@ body.col-resizing * { pointer-events: none !important; }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <script>
 mermaid.initialize({
   startOnLoad: false,
@@ -1463,7 +1465,6 @@ window.addEventListener('pageshow', (e) => {
 let feedbackSessions = [];
 let currentSession   = null;
 let likedVideoIds    = new Set();
-const videoVarkCache = new Map();   // cache: videoId → ['V','K',…]
 
 const VARK_CFG = {
   V: { label:'Visual',      color:'#6c8fff', emoji:'👁️',  icon:'📊' },
@@ -1810,8 +1811,134 @@ function changePage(delta) {} // no-op — strip mode has no pagination
 function switchTab(name, btn) {
   document.querySelectorAll('.study-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById(`panel-${name}`).classList.add('active');
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById(`panel-${name}`);
+  if (panel) panel.classList.add('active');
+}
+
+// ─── VIDEOS TAB ───────────────────────────────────────────────
+function renderVideosTab(videos) {
+  const grid  = document.getElementById('yt-grid');
+  const empty = document.getElementById('videos-empty');
+  if (!grid || !empty) return;
+
+  if (!videos || videos.length === 0) {
+    grid.style.display  = 'none';
+    grid.innerHTML      = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML      = '';
+  grid.style.display  = 'flex';
+
+  videos.forEach((v, idx) => {
+    const card = document.createElement('div');
+    card.className = 'yt-card';
+
+    if (v.is_search_link) {
+      card.innerHTML = `
+        <a href="${v.url}" target="_blank" rel="noopener"
+          style="display:flex;align-items:center;gap:10px;padding:10px;text-decoration:none;color:var(--text);width:100%;">
+          <span style="font-size:22px;">🔍</span>
+          <div style="min-width:0;flex:1;">
+            <div class="yt-title">${v.title}</div>
+            <div class="yt-channel" style="color:var(--accent-v);">ค้นหาใน YouTube →</div>
+          </div>
+        </a>`;
+      grid.appendChild(card);
+      return;
+    }
+
+    const embedId  = `ytx-embed-${idx}`;
+    const iframeId = `ytx-iframe-${idx}`;
+    card.innerHTML = `
+      <img class="yt-thumb" src="${v.thumbnail}" alt="${v.title}" loading="lazy"
+        onclick="playTabVideo(${idx},'${v.embed_url}')">
+      <div class="yt-embed-wrap" id="${embedId}">
+        <iframe id="${iframeId}" allowfullscreen allow="autoplay;encrypted-media"></iframe>
+      </div>
+      <div class="yt-footer">
+        <div class="yt-info">
+          <div class="yt-title">${v.title}</div>
+          <div class="yt-channel">${v.channel || ''}</div>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function playTabVideo(idx, embedUrl) {
+  const card     = document.querySelectorAll('#yt-grid .yt-card')[idx];
+  const embedEl  = document.getElementById(`ytx-embed-${idx}`);
+  const iframeEl = document.getElementById(`ytx-iframe-${idx}`);
+  if (!card || !embedEl || !iframeEl) return;
+  card.classList.add('playing');
+  iframeEl.src = embedUrl + '?autoplay=1';
+}
+
+// ─── QUIZ TAB (single fetch over full material) ───────────────
+async function fetchAndRenderQuizTab(material, varkScores) {
+  const empty   = document.getElementById('quiz-empty');
+  const skel    = document.getElementById('quiz-skeleton');
+  const listEl  = document.getElementById('quiz-list');
+  if (!listEl) return;
+  if (empty) empty.style.display = 'none';
+  if (skel)  skel.style.display  = 'block';
+  listEl.style.display = 'none';
+  listEl.innerHTML     = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/quiz`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        learning_material: String(material || '').slice(0, 8000),
+        vark_style:        varkScores,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const questions = Array.isArray(data.questions) ? data.questions.slice(0, 10) : [];
+    if (skel) skel.style.display = 'none';
+    if (questions.length === 0) {
+      if (empty) { empty.style.display = ''; empty.querySelector('p').innerHTML = 'ยังไม่มีคำถามที่สร้างได้'; }
+      return;
+    }
+    listEl.innerHTML     = buildQuizTabHTML(questions);
+    listEl.style.display = 'block';
+  } catch(e) {
+    console.warn('Quiz tab fetch error:', e);
+    if (skel) skel.style.display = 'none';
+    if (empty) {
+      empty.style.display = '';
+      empty.querySelector('p').innerHTML = '⚠️ โหลดแบบทดสอบไม่สำเร็จ';
+    }
+  }
+}
+
+function buildQuizTabHTML(questions) {
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let html = '';
+  questions.forEach((q, qi) => {
+    const qid = `tab-${qi}`;
+    _inlineQStore[qid] = q;
+    html += `
+      <div class="inline-q-card" id="iqcard-${qid}" style="margin:0 16px 10px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:5px;">Q${qi + 1}</div>
+        <div class="inline-q-text">${esc(q.q)}</div>
+        <div>
+          ${['A','B','C','D'].map(k => `
+            <button class="quiz-opt-btn" id="iqopt-${qid}-${k}"
+              onclick="answerInlineQ('${qid}','${k}')">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-right:8px;">${k}</span>${esc(q.options[k] || '')}
+            </button>`).join('')}
+        </div>
+        <div id="iqexp-${qid}" style="display:none;margin-top:8px;padding:8px 12px;border-radius:7px;
+          border-left:3px solid;font-size:12px;color:var(--text-muted);line-height:1.65;background:#f5f7fc;"></div>
+      </div>`;
+  });
+  return html;
 }
 
 // ─── GENERATE ─────────────────────────────────────────────────
@@ -1833,25 +1960,11 @@ async function generate() {
     ? { ...varkData.vark_scores, dominant: varkData.dominant_style }
     : { V:25, A:25, R:25, K:25, dominant:'R' };
 
-  // Build multi-modal instruction based on VARK %
-  const styleLabels = { V:'Visual (ตาราง/diagram/chart)', A:'Aural (เล่าเรื่อง/dialog/mnemonic)', R:'Read/Write (outline/definitions/notes)', K:'Kinesthetic (ขั้นตอน/แบบฝึก/โจทย์จริง)' };
-  const order = ['V','A','R','K']
-    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
-    .sort((a, b) => b.score - a.score)
-    .filter(x => x.score > 0);
-  const totalScore = order.reduce((s, x) => s + x.score, 0) || 100;
-  const styleInstr = order.map(({ k, score }) => {
-    const pct = Math.round((score / totalScore) * 100);
-    return `${pct}% ${styleLabels[k]}`;
-  }).join(', ');
-  const multiModalNote = `\n\n[คำแนะนำสไตล์การเรียน VARK: สร้างสื่อแบบ multi-modal ตามสัดส่วน: ${styleInstr}. ห้ามเขียน header หรือ label บอกชื่อสไตล์ VARK เช่น "Visual:", "Kinesthetic:" หรือ emoji VARK ลงในเนื้อหา ให้เขียนเนื้อหาต่อเนื่องเป็นธรรมชาติโดยไม่บอกว่าส่วนไหนเป็น VARK อะไร]`;
-  const fullTopic = topic + multiModalNote;
-
   try {
     const fd = new FormData();
     fd.append('pdf', pdfFiles[activePdfIdx].file);
     fd.append('vark_style', JSON.stringify(varkScores));
-    fd.append('topic', fullTopic);
+    fd.append('topic', topic);
 
     const resp = await fetch(`${API_BASE}/generate`, { method:'POST', body:fd });
     if (!resp.ok) {
@@ -1859,7 +1972,6 @@ async function generate() {
       throw new Error(err.detail || 'API error');
     }
     const data = await resp.json();
-    console.log("ตรวจสอบข้อมูลจาก Server:", data);
     currentSession = {
       session_id:        data.session_id,
       vark_style:        data.vark_style,
@@ -1869,44 +1981,28 @@ async function generate() {
       liked: false,
     };
 
-    // ── ปล่อย UI ทันที — re-enable ปุ่ม + ซ่อน spinner ก่อน render ──
     document.getElementById('guide-skeleton').style.display = 'none';
     btn.disabled = false;
     spinner.style.display = 'none';
 
-    // ── Defer heavy synchronous render ให้ browser repaint ก่อน ──
     const _mat    = data.learning_material || '';
-    console.log('[DEBUG] data keys:', Object.keys(data));
-    console.log('[DEBUG] data.learning_material type:', typeof data.learning_material, 'length:', (data.learning_material||'').length);
-    const _videos = data.videos   || [];
+    const _videos = data.videos || [];
 
-    // prepareQuiz เบามาก รันได้เลย
-    prepareQuiz(_mat, varkScores);
-
-    // renderVARKGuide — defer + try/catch กัน silent crash
+    // Render unified guide (sections + embedded videos) immediately
     setTimeout(() => {
       try {
-        console.log('[DEBUG] learning_material length:', (_mat||'').length);
-        console.log('[DEBUG] learning_material preview:', (_mat||'').slice(0, 300));
-        console.log('[DEBUG] varkScores:', JSON.stringify(varkScores));
-        renderVARKGuide(_mat, varkScores);
-        document.querySelector('.study-tab').click();
+        renderUnifiedGuide(_mat, _videos, varkScores);
       } catch(e) {
-        console.error('renderVARKGuide error:', e);
-        // TEMP DEBUG: แสดง error ให้ user เห็น
-        alert('renderVARKGuide ERROR: ' + e.message);
-        // แสดง error ให้ user เห็นแทน skeleton ค้าง
+        console.error('renderUnifiedGuide error:', e);
         const el = document.getElementById('guide-vark-sections');
         el.innerHTML = '<div style="padding:20px;color:var(--accent-a);">⚠️ เกิดข้อผิดพลาดในการแสดงเนื้อหา<br><small>' + (e.message||e) + '</small></div>';
         el.style.display = 'block';
       }
     }, 0);
 
-    // renderVideos — delay 50ms + try/catch
-    setTimeout(() => {
-      try { renderVideos(_videos, varkScores, _mat); }
-      catch(e) { console.error('renderVideos error:', e); }
-    }, 50);
+    // Populate standalone Video + Quiz tabs from the same response
+    renderVideosTab(_videos);
+    fetchAndRenderQuizTab(_mat, varkScores);
 
   } catch(err) {
     console.error(err);
@@ -1918,76 +2014,233 @@ async function generate() {
   }
 }
 
-// ─── VARK-PROPORTIONAL GUIDE ──────────────────────────────────
-function renderVARKGuide(md, varkScores) {
+// ─── IMAGE LINE FILTER ────────────────────────────────────────
+function filterImageLines(md) {
+  const IMAGE_HDR  = /^#{1,3}\s*(ภาพประกอบ|แทรกรูป|แทรกภาพ|insert\s*image|image\s*placeholder)/i;
+  const IMAGE_LINE = /(ภาพประกอบ:|ภาพที่\s*\d|รูปที่\s*\d|แทรกรูป|\[image\]|\[รูป\]|insert.?image|placeholder.?image)/i;
+  const out = []; let skip = false;
+  for (const line of md.split('\n')) {
+    if (/^#{1,3}\s/.test(line)) skip = IMAGE_HDR.test(line);
+    const isReal    = /^!\[[^\]]*\]\(https?:\/\//.test(line.trim());
+    const isFence   = /^```/.test(line.trim());
+    if (!skip && (!IMAGE_LINE.test(line) || isReal || isFence)) out.push(line);
+  }
+  return out.join('\n');
+}
+
+// ─── PARSE SECTIONS BY H2 HEADINGS ───────────────────────────
+function parseSections(md) {
+  const lines = md.split('\n');
+  const sections = [];
+  let buf = [], title = '';
+
+  function flush() {
+    const content = buf.join('\n').trim();
+    if (content) sections.push({ title, content });
+    buf = [];
+  }
+
+  for (const line of lines) {
+    if (/^## /.test(line)) {
+      flush();
+      title = line.slice(3).trim();
+      buf = [line];
+    } else {
+      buf.push(line);
+    }
+  }
+  flush();
+
+  // Fallback: no H2 found → treat as single section
+  if (sections.length === 0) return [{ title: '', content: md.trim() }];
+  return sections;
+}
+
+// ─── UNIFIED GUIDE: sections + embedded video + quiz ──────────
+function renderUnifiedGuide(md, videos, varkScores) {
   const el = document.getElementById('guide-vark-sections');
   el.innerHTML = '';
 
-  console.log('[renderVARKGuide] input md length:', (md||'').length);
-  if (!md || md.trim().length === 0) {
-    el.innerHTML = '<div style="padding:20px;color:var(--accent-a);">⚠️ ไม่มีเนื้อหาจาก API (learning_material ว่างเปล่า)</div>';
+  if (!md || !md.trim()) {
+    el.innerHTML = '<div style="padding:20px;color:var(--accent-a);">⚠️ ไม่มีเนื้อหาจาก API</div>';
     el.style.display = 'block';
     return;
   }
 
-  // ── กรองส่วน "ภาพประกอบ" / visual placeholder ที่ AI generate มาออก ──
-  // 1) ตัด block header ที่สั่ง "แทรก/ใส่" ภาพ (placeholder) ไปจนถึง header ถัดไป
-  //    ⚠️ ต้องแม่นยำ — ห้ามกัดคำเช่น "แผนภาพสรุป" หรือ "Visual Overview"
-  const IMAGE_HDR = /^#{1,3}\s*(ภาพประกอบ|แทรกรูป|แทรกภาพ|insert\s*image|image\s*placeholder)/i;
-  // 2) ตัด plain-text placeholder — แต่ห้ามตัด markdown image จริง ![alt](url)
-  //    และห้ามตัด mermaid code fence
-  const IMAGE_LINE = /(ภาพประกอบ:|ภาพที่\s*\d|รูปที่\s*\d|แทรกรูป|\[image\]|\[รูป\]|insert.?image|placeholder.?image)/i;
+  const cleanMd  = filterImageLines(md);
+  const sections = parseSections(cleanMd);
+  const nSec     = sections.length;
 
-  const filteredLines = [];
-  let skipBlock = false;
-  for (const line of md.split('\n')) {
-    if (/^#{1,3}\s/.test(line)) {
-      skipBlock = IMAGE_HDR.test(line);
-    }
-    // ยังคง: markdown image จริง ![alt](url) และ mermaid fence
-    const isRealImage  = /^!\[[^\]]*\]\(https?:\/\//.test(line.trim());
-    const isMermaidFence = /^```/.test(line.trim());
-    if (!skipBlock && (!IMAGE_LINE.test(line) || isRealImage || isMermaidFence)) {
-      filteredLines.push(line);
-    }
-  }
-  const cleanMd = filteredLines.join('\n');
-  console.log('[renderVARKGuide] original lines:', md.split('\n').length, '→ after filter:', filteredLines.length);
-  console.log('[renderVARKGuide] cleanMd preview:', cleanMd.slice(0, 300));
+  sections.forEach((sec) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'study-section-wrap';
 
-  // Sort styles by score, highest first
-  const order = ['V','A','R','K']
-    .map(k => ({ k, score: Number(varkScores[k] || 0) }))
-    .sort((a, b) => b.score - a.score)
-    .filter(x => x.score > 0);
+    const contentEl = document.createElement('div');
+    contentEl.className = 'guide-content';
+    contentEl.innerHTML = parseMD(sec.content);
+    wrap.appendChild(contentEl);
 
-  const totalScore = order.reduce((s, x) => s + x.score, 0) || 100;
-  const lines      = cleanMd.split('\n');
-  const totalLines = lines.length;
-  let li = 0;
-
-  order.forEach(({ k, score }, i) => {
-    const count = i < order.length - 1
-      ? Math.round((score / totalScore) * totalLines)
-      : totalLines - li;
-    const chunk  = lines.slice(li, li + Math.max(count, 1)).join('\n');
-    li += Math.max(count, 1);
-
-    const sec = document.createElement('div');
-    sec.className = `vark-section s-${k}`;
-
-    const content = document.createElement('div');
-    content.className = 'guide-content';
-    content.innerHTML = parseMD(chunk);
-    sec.appendChild(content);
-
-    el.appendChild(sec);
+    el.appendChild(wrap);
   });
 
   el.style.display = 'block';
   document.getElementById('like-bar').style.display = 'flex';
-  // Render mermaid diagrams (mindmap, flowchart etc.) after DOM is ready
   setTimeout(() => renderMermaidBlocks(el), 0);
+  setTimeout(() => renderMathBlocks(el), 0);
+}
+
+// ─── KATEX MATH RENDERER ─────────────────────────────────────
+// Renders $...$, $$...$$, \(...\), \[...\] inside `container`.
+function renderMathBlocks(container) {
+  if (!container || typeof window.renderMathInElement !== 'function') return;
+  try {
+    window.renderMathInElement(container, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true  },
+        { left: '\\[', right: '\\]', display: true  },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '$',  right: '$',  display: false },
+      ],
+      throwOnError: false,
+      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+    });
+  } catch (e) { console.warn('KaTeX render error:', e); }
+}
+
+// ─── BUILD EMBEDDED VIDEO CARD ────────────────────────────────
+function buildVideoCard(v, idx) {
+  const area = document.createElement('div');
+  area.className = 'section-video-area';
+
+  if (v.is_search_link) {
+    area.innerHTML = `
+      <a href="${v.url}" target="_blank" rel="noopener"
+        style="display:flex;align-items:center;gap:10px;padding:10px;text-decoration:none;color:var(--text);">
+        <span style="font-size:20px;">🔍</span>
+        <div>
+          <div class="section-video-title">${v.title}</div>
+          <div class="section-video-channel" style="color:var(--accent-v);">ค้นหาใน YouTube →</div>
+        </div>
+      </a>`;
+    return area;
+  }
+
+  const embedId = `sv-embed-${idx}`;
+  const iframeId = `sv-iframe-${idx}`;
+  area.innerHTML = `
+    <div class="section-video-row" id="sv-row-${idx}">
+      <img class="section-video-thumb"
+        src="${v.thumbnail}" alt="${v.title}" loading="lazy"
+        onclick="playSectionVideo(${idx},'${v.embed_url}')">
+      <div class="section-video-embed" id="${embedId}">
+        <iframe id="${iframeId}" allowfullscreen allow="autoplay;encrypted-media"></iframe>
+      </div>
+      <div class="section-video-info">
+        <div class="section-video-title">${v.title}</div>
+        <div class="section-video-channel">${v.channel || ''}</div>
+        <div style="margin-top:6px;">
+          <button onclick="playSectionVideo(${idx},'${v.embed_url}')"
+            style="font-size:11px;padding:4px 10px;border:1px solid var(--accent-v);
+            color:var(--accent-v);background:rgba(108,143,255,0.08);border-radius:5px;
+            cursor:pointer;font-family:'Sarabun',sans-serif;font-weight:600;">
+            ▶ เล่น
+          </button>
+        </div>
+      </div>
+    </div>`;
+  return area;
+}
+
+function playSectionVideo(idx, embedUrl) {
+  const embedEl  = document.getElementById(`sv-embed-${idx}`);
+  const iframeEl = document.getElementById(`sv-iframe-${idx}`);
+  const row      = document.getElementById(`sv-row-${idx}`);
+  if (!embedEl || !iframeEl) return;
+  // Hide thumb + info, show embed full-width
+  const thumb = row.querySelector('.section-video-thumb');
+  const info  = row.querySelector('.section-video-info');
+  if (thumb) thumb.style.display = 'none';
+  if (info)  info.style.display  = 'none';
+  embedEl.style.display = 'block';
+  iframeEl.src = embedUrl + '?autoplay=1';
+}
+
+// ─── FETCH QUIZ AND POPULATE SECTIONS (per-section, parallel) ─
+async function fetchAndFillQuiz(sections, varkScores) {
+  await Promise.all(sections.map(async (sec, i) => {
+    const qArea = document.getElementById(`section-quiz-${i}`);
+    if (!qArea) return;
+    try {
+      const res = await fetch(`${API_BASE}/quiz`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          learning_material: sec.content.slice(0, 4000),
+          vark_style:        varkScores,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const questions = Array.isArray(data.questions) ? data.questions.slice(0, 10) : [];
+      if (questions.length === 0) { qArea.style.display = 'none'; return; }
+      qArea.innerHTML = buildSectionQuizHTML(questions, i);
+    } catch(e) {
+      console.warn(`Quiz fetch error [section ${i}]:`, e);
+      qArea.style.display = 'none';
+    }
+  }));
+}
+
+function buildSectionQuizHTML(questions, si) {
+  let html = `<div class="section-quiz-header">🧪 Quiz หัวข้อนี้</div>`;
+  questions.forEach((q, qi) => {
+    const qid = `${si}-${qi}`;
+    _inlineQStore[qid] = q; // store full object — no JSON in onclick
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html += `
+      <div class="inline-q-card" id="iqcard-${qid}">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:5px;">Q${qi + 1}</div>
+        <div class="inline-q-text">${esc(q.q)}</div>
+        <div>
+          ${['A','B','C','D'].map(k => `
+            <button class="quiz-opt-btn" id="iqopt-${qid}-${k}"
+              onclick="answerInlineQ('${qid}','${k}')">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-right:8px;">${k}</span>${esc(q.options[k] || '')}
+            </button>`).join('')}
+        </div>
+        <div id="iqexp-${qid}" style="display:none;margin-top:8px;padding:8px 12px;border-radius:7px;
+          border-left:3px solid;font-size:12px;color:var(--text-muted);line-height:1.65;background:#f5f7fc;"></div>
+      </div>`;
+  });
+  return html;
+}
+
+function answerInlineQ(qid, chosen) {
+  const firstBtn = document.getElementById(`iqopt-${qid}-A`);
+  if (firstBtn && firstBtn.disabled) return; // already answered
+
+  const q = _inlineQStore[qid] || {};
+  const answer      = q.answer || '';
+  const explanation = q.explanation || '';
+  const isRight = chosen === answer;
+  ['A','B','C','D'].forEach(k => {
+    const btn = document.getElementById(`iqopt-${qid}-${k}`);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.classList.remove('selected');
+    if (k === answer) btn.classList.add('correct');
+    else if (k === chosen) btn.classList.add('wrong');
+  });
+
+  const expEl  = document.getElementById(`iqexp-${qid}`);
+  const cardEl = document.getElementById(`iqcard-${qid}`);
+  if (expEl) {
+    expEl.style.display       = 'block';
+    expEl.style.borderLeftColor = isRight ? '#5cd6b0' : '#ff7c5c';
+    expEl.innerHTML = (isRight ? '✅ ถูกต้อง!' : `❌ คำตอบที่ถูก: <strong>${answer}</strong>`) +
+      (explanation ? ' — ' + explanation : '');
+  }
+  if (cardEl) cardEl.style.borderColor = isRight ? 'rgba(92,214,176,0.55)' : 'rgba(255,124,92,0.45)';
 }
 
 // ─── MARKDOWN PARSER ──────────────────────────────────────────────
@@ -2005,11 +2258,7 @@ function inlineMD(s) {
   s = s.replace(/<br\s*\/?>/gi, function() { return savePH('<br>'); });
   s = s.replace(/<\/?(?:b|i|strong|em|u|del|mark|small|sup|sub)>/gi, function(m) { return savePH(m); });
 
-  // 1) Inline image: ![alt](url) → placeholder
-  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, url) {
-    return savePH('<img src="' + url + '" alt="' + alt.replace(/"/g, '&quot;') + '" style="max-width:100%;border-radius:6px;margin:4px 0;display:block;" loading="lazy">');
-  });
-  // 2) Inline link: [text](url) → placeholder
+  // 1) Inline link: [text](url) → placeholder (รูปภาพถูกตัดออกจากระบบแล้ว)
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, text, url) {
     return savePH('<a href="' + url + '" target="_blank" rel="noopener" style="color:var(--accent-v);">' + text + '</a>');
   });
@@ -2041,6 +2290,25 @@ function parseMD(md) {
     // Fenced code block — tolerate leading whitespace + zero-width chars (NBSP, ZWSP, BOM)
     // so fences emitted inside list items or with stray invisible chars still parse.
     var fenceClean = raw.replace(/[​﻿ ]/g, '').replace(/^[ \t]+/, '');
+    // Hidden-answer block delimited by 'ans' markers on their own line.
+    // Format:
+    //   'ans'
+    //   <answer content — may span multiple lines, contain markdown>
+    //   'ans'
+    // Body is parsed as markdown so it can include lists/bold/code.
+    var ansClean = raw.trim();
+    if (/^['‘’"]?\s*ans\s*['‘’"]?[\s.,;:]*$/i.test(ansClean)) {
+      var ansBody = [];
+      i++;
+      while (i < lines.length) {
+        if (/^['‘’"]?\s*ans\s*['‘’"]?[\s.,;:]*$/i.test(lines[i].trim())) break;
+        ansBody.push(lines[i]); i++;
+      }
+      var ansHTML = parseMD(ansBody.join('\n'));
+      out.push('<details class="answer-block"><summary><span class="answer-summary-text">💡 ดูเฉลย</span></summary><div class="answer-body">' + ansHTML + '</div></details>');
+      i++; continue;
+    }
+
     if (/^```/.test(fenceClean)) {
       var lang = fenceClean.slice(3).trim();
       var code = [];
@@ -2065,6 +2333,38 @@ function parseMD(md) {
         out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
       }
       i++; continue;
+    }
+
+    // Display-math block: a line that is just \[  or  $$  opens a block that
+    // runs until the matching \]  /  $$ . Emit it as ONE element with the raw
+    // LaTeX kept on a single text node (no <br>, no markdown). Otherwise the
+    // paragraph path below would split it across <br>, and KaTeX auto-render
+    // can't pair delimiters that sit in different text nodes. (Single-line
+    // \[ ... \] / $$ ... $$ already render fine via the paragraph path.)
+    {
+      // Strip zero-width / BOM and turn NBSP into a normal space, so the exact
+      // open/close match below isn't defeated by an invisible character the
+      // model sprinkled onto the \[ / \] line (especially around Thai text).
+      var mClean = function (s) {
+        return s.replace(/[​﻿]/g, '').replace(/ /g, ' ').trim();
+      };
+      var mOpen = mClean(raw);
+      if (mOpen === '\\[' || mOpen === '$$') {
+        var mClose = (mOpen === '$$') ? '$$' : '\\]';
+        var mbody  = [raw];
+        i++;
+        while (i < lines.length) {
+          mbody.push(lines[i]);
+          var done = (mClean(lines[i]) === mClose);
+          i++;
+          if (done) break;
+        }
+        var mathRaw = mbody.join('\n')
+          .replace(/[​﻿]/g, '').replace(/ /g, ' ')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        out.push('<div class="math-block">' + mathRaw + '</div>');
+        continue;
+      }
     }
 
     // Table: collect consecutive | lines, properly handle header/separator/body
@@ -2092,17 +2392,8 @@ function parseMD(md) {
       continue;
     }
 
-    // Block image: line starts with ![ — handle ALL cases here so none leak into paragraph
-    if (/^!\[/.test(raw)) {
-      var imgUrlMatch = raw.match(/\]\(([^)]+)\)/);
-      var imgUrl = imgUrlMatch ? imgUrlMatch[1].trim() : '';
-      // แสดงเฉพาะ URL จริง (http/https หรือ /)
-      // ไม่มี URL จริง → ถือเป็น AI placeholder → ทิ้งเลย ไม่ render อะไร
-      if (imgUrl && /^https?:\/\/|^\//.test(imgUrl)) {
-        out.push('<p>' + inlineMD(raw) + '</p>');
-      }
-      i++; continue;
-    }
+    // Image markdown ถูกตัดออกจากระบบแล้ว — ทิ้งบรรทัด ![...] ทุกกรณี ไม่ render
+    if (/^!\[/.test(raw)) { i++; continue; }
 
     // Headings
     if (/^#### /.test(raw)) { out.push('<h4>' + inlineMD(raw.slice(5)) + '</h4>'); i++; continue; }
@@ -2151,13 +2442,16 @@ function parseMD(md) {
     // Blank line
     if (raw.trim() === '') { i++; continue; }
 
-    // Paragraph — collect until blank line or block-level token
+    // Paragraph — collect until blank line or block-level token.
+    // Stop on 'ans' markers so they become standalone answer blocks
+    // even when written without surrounding blank lines.
     var para = [];
     while (i < lines.length && lines[i].trim() !== '' &&
            !/^[#>|`]/.test(lines[i]) &&
            !/^[-*] /.test(lines[i]) &&
            !/^\d+\.\s/.test(lines[i]) &&
-           !/^---/.test(lines[i].trim())) {
+           !/^---/.test(lines[i].trim()) &&
+           !/^['‘’"]?\s*ans\s*['‘’"]?[\s.,;:]*$/i.test(lines[i].trim())) {
       para.push(inlineMD(lines[i]));
       i++;
     }
@@ -2167,454 +2461,12 @@ function parseMD(md) {
   return out.join('\n');
 }
 
-// ─── QUIZ ──────────────────────────────────────────────────────
-let _quizMd    = '';
-let _quizVark  = {};
-let _quizDiff  = 'easy';
-let _quizCount = 5;
-let _quizData  = null;
-let _quizAnswers = {};
+// ─── QUIZ STATE ────────────────────────────────────────────────
+const VARK_Q_COLOR  = { V:'#6c8fff', A:'#ff7c5c', R:'#5cd6b0', K:'#f5c842' };
+const _inlineQStore = {}; // qid → question object (avoids JSON-in-onclick)
 
-const DIFF_CFG = {
-  easy:   { label:'Easy',   emoji:'🟢', mix:'100% ความจำ / ความเข้าใจพื้นฐาน (Bloom L1-L2)', btn:'active-easy'   },
-  medium: { label:'Medium', emoji:'🟡', mix:'50% เข้าใจ + 50% ประยุกต์ใช้ (Bloom L2-L3)',    btn:'active-medium' },
-  hard:   { label:'Hard',   emoji:'🔴', mix:'30% ประยุกต์ + 70% วิเคราะห์ / debug (Bloom L4-L6)', btn:'active-hard' },
-};
-
-function prepareQuiz(md, varkScores) {
-  _quizMd      = md;
-  _quizVark    = varkScores;
-  _quizData    = null;
-  _quizAnswers = {};
-  _quizDiff    = 'easy';
-  _quizCount   = 5;
-
-  // Reset UI
-  document.getElementById('quiz-empty').style.display      = 'none';
-  document.getElementById('quiz-config').style.display     = '';
-  document.getElementById('quiz-questions').style.display  = 'none';
-  document.getElementById('quiz-result-bar').style.display = 'none';
-
-  setDiff('easy');
-  setQCount(5);
-}
-
-function setDiff(d) {
-  _quizDiff = d;
-  ['easy','medium','hard'].forEach(k => {
-    const btn = document.getElementById(`diff-${k}`);
-    if (!btn) return;
-    btn.className = 'quiz-diff-btn' + (k === d ? ` ${DIFF_CFG[k].btn}` : '');
-  });
-}
-
-function setQCount(n) {
-  _quizCount = n;
-  [3,5,7,10].forEach(k => {
-    const btn = document.getElementById(`qc-${k}`);
-    if (!btn) return;
-    const active = k === n;
-    btn.style.background   = active ? 'rgba(92,214,176,0.12)' : 'var(--card)';
-    btn.style.borderColor  = active ? 'rgba(92,214,176,0.6)'  : 'var(--border)';
-    btn.style.color        = active ? '#5cd6b0'               : 'var(--text-muted)';
-  });
-}
-
-async function startQuiz() {
-  _quizAnswers = {};
-
-  document.getElementById('quiz-config').style.display    = 'none';
-  document.getElementById('quiz-skeleton').style.display  = 'block';
-  document.getElementById('quiz-questions').style.display = 'none';
-  document.getElementById('quiz-result-bar').style.display= 'none';
-
-  try {
-    const res = await fetch(`${API_BASE}/quiz`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        learning_material: _quizMd,
-        vark_style:        _quizVark,
-        difficulty:        _quizDiff,
-        count:             _quizCount,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    _quizData = Array.isArray(data.questions) ? data.questions : [];
-    if (_quizData.length === 0) throw new Error('Empty quiz array');
-
-    renderQuizQuestions(_quizData);
-
-  } catch(e) {
-    console.error('Quiz generation error:', e);
-    showToast(`❌ สร้าง Quiz ไม่สำเร็จ: ${e.message}`);
-    document.getElementById('quiz-config').style.display = '';
-  } finally {
-    document.getElementById('quiz-skeleton').style.display = 'none';
-  }
-}
-
-const VARK_Q_COLOR = { V:'#6c8fff', A:'#ff7c5c', R:'#5cd6b0', K:'#f5c842' };
-const DIFF_COLOR   = { easy:'#5cd6b0', medium:'#f5c842', hard:'#ff7c5c' };
-
-function renderQuizQuestions(questions) {
-  const container = document.getElementById('quiz-questions');
-  container.innerHTML = '';
-
-  questions.forEach((q, qi) => {
-    const vc   = VARK_Q_COLOR[q.vark]  || '#7a80a0';
-    const dc   = DIFF_COLOR[q.diff]    || '#7a80a0';
-    const card = document.createElement('div');
-    card.id = `qcard-${qi}`;
-    card.style.cssText = `margin:12px 16px;padding:15px 15px;background:var(--card);
-      border:1.5px solid var(--border);border-radius:var(--radius);transition:border-color 0.25s;`;
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-top:3px;flex-shrink:0;">Q${qi+1}</span>
-        <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;line-height:1.6;">${q.q}</span>
-      </div>
-      <div id="opts-${qi}">
-        ${['A','B','C','D'].map(k => `
-          <button class="quiz-opt-btn" id="opt-${qi}-${k}" onclick="selectAnswer(${qi},'${k}')">
-            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
-              color:var(--text-dim);margin-right:8px;">${k}</span>${q.options[k]}
-          </button>`).join('')}
-      </div>
-      <div id="exp-${qi}" style="display:none;margin-top:9px;padding:9px 12px;
-        border-radius:7px;border-left:3px solid;font-size:12px;color:var(--text-muted);
-        line-height:1.65;background:#f5f7fc;"></div>`;
-
-    container.appendChild(card);
-  });
-
-  // Submit button
-  const foot = document.createElement('div');
-  foot.style.cssText = 'padding:12px 16px 20px;text-align:center;';
-  foot.innerHTML = `
-    <button id="btn-submit-quiz" onclick="submitQuiz()" disabled
-      style="padding:10px 32px;background:linear-gradient(135deg,var(--accent-v),#a78bff);
-      border:none;border-radius:9px;color:#fff;font-family:'Sarabun',sans-serif;
-      font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;opacity:0.4;">
-      ✓ ส่งคำตอบ
-    </button>`;
-  container.appendChild(foot);
-
-  container.style.display = 'block';
-}
-
-function selectAnswer(qi, key) {
-  // ถ้า submit ไปแล้วห้ามเปลี่ยน
-  if (document.getElementById('btn-submit-quiz')?.style.display === 'none') return;
-
-  const prev = _quizAnswers[qi];
-  _quizAnswers[qi] = key;
-
-  // อัปเดต style ทุกปุ่มในข้อนี้
-  ['A','B','C','D'].forEach(k => {
-    const btn = document.getElementById(`opt-${qi}-${k}`);
-    if (!btn) return;
-    btn.classList.toggle('selected', k === key);
-  });
-
-  // Enable submit เมื่อตอบครบทุกข้อ (ไม่ lock ปุ่ม — ยังเปลี่ยนได้)
-  const answered = Object.keys(_quizAnswers).length;
-  const sb = document.getElementById('btn-submit-quiz');
-  if (sb && answered === _quizData.length) {
-    sb.disabled = false;
-    sb.style.opacity = '1';
-  }
-}
-
-function submitQuiz() {
-  if (!_quizData) return;
-
-  // ล็อกปุ่มทั้งหมดทันทีก่อน grade
-  _quizData.forEach((q, qi) => {
-    ['A','B','C','D'].forEach(k => {
-      const btn = document.getElementById(`opt-${qi}-${k}`);
-      if (btn) btn.disabled = true;
-    });
-  });
-
-  let correct = 0;
-
-  _quizData.forEach((q, qi) => {
-    const chosen  = _quizAnswers[qi];
-    const isRight = chosen === q.answer;
-    if (isRight) correct++;
-
-    const card = document.getElementById(`qcard-${qi}`);
-    if (card) card.style.borderColor = isRight
-      ? 'rgba(92,214,176,0.55)' : 'rgba(255,124,92,0.45)';
-
-    ['A','B','C','D'].forEach(k => {
-      const btn = document.getElementById(`opt-${qi}-${k}`);
-      if (!btn) return;
-      btn.classList.remove('selected');
-      if (k === q.answer) btn.classList.add('correct');
-      else if (k === chosen) btn.classList.add('wrong');
-    });
-
-    const expEl = document.getElementById(`exp-${qi}`);
-    if (expEl) {
-      expEl.style.display        = 'block';
-      expEl.style.borderLeftColor = isRight ? '#5cd6b0' : '#ff7c5c';
-      expEl.innerHTML = `${isRight ? '✅' : `❌ คำตอบที่ถูก: <strong>${q.answer}</strong>`} — ${q.explanation || ''}`;
-    }
-  });
-
-  const sb = document.getElementById('btn-submit-quiz');
-  if (sb) sb.style.display = 'none';
-
-  const pct   = Math.round((correct / _quizData.length) * 100);
-  const grade = pct >= 80 ? '🎉 ยอดเยี่ยม!' : pct >= 60 ? '👍 ผ่าน!' : '📚 ลองอีกครั้ง';
-  document.getElementById('quiz-score-text').textContent = `${correct} / ${_quizData.length} — ${pct}%  ${grade}`;
-  document.getElementById('quiz-score-sub').textContent  =
-    `ระดับ: ${DIFF_CFG[_quizDiff].emoji} ${DIFF_CFG[_quizDiff].label}  •  VARK: ${(Object.entries(_quizVark).filter(([k])=>['V','A','R','K'].includes(k)).sort((a,b)=>b[1]-a[1])[0]||['?'])[0]} dominant`;
-
-  const rb = document.getElementById('quiz-result-bar');
-  rb.style.display = 'block';
-  rb.scrollIntoView({ behavior:'smooth', block:'nearest' });
-}
-
-function resetQuiz() {
-  _quizAnswers = {};
-  _quizData    = null;
-  document.getElementById('quiz-questions').style.display   = 'none';
-  document.getElementById('quiz-result-bar').style.display  = 'none';
-  document.getElementById('quiz-config').style.display      = '';
-  setDiff(_quizDiff);
-  setQCount(_quizCount);
-}
-
-// ─── VIDEOS ───────────────────────────────────────────────────
-function renderVideos(videos, varkScores, learningMaterial) {
-  const grid  = document.getElementById('yt-grid');
-  const empty = document.getElementById('videos-empty');
-  const tp    = document.getElementById('transcribe-panel');
-
-  if (!videos || videos.length === 0) {
-    grid.style.display  = 'none';
-    empty.style.display = '';
-    tp.style.display    = 'none';
-    return;
-  }
-
-  // ── Cap at 10 videos, prioritise by VARK dominant match ──────
-  const dominant = (varkScores && varkScores.dominant) || 'R';
-  const cfg = VARK_CFG[dominant] || VARK_CFG['R'];
-  const VARK_FORMAT_HINT = {
-    V: ['animation','diagram','chart','visual','infographic','slides'],
-    A: ['lecture','talk','podcast','explained','discussion','interview'],
-    R: ['tutorial','guide','notes','walkthrough','documentation','code'],
-    K: ['hands-on','demo','practice','build','project','exercise'],
-  };
-  const hints = VARK_FORMAT_HINT[dominant] || [];
-  function matchScore(v) {
-    const h = (v.title + ' ' + (v.channel || '')).toLowerCase();
-    return hints.reduce((s, k) => s + (h.includes(k) ? 1 : 0), 0);
-  }
-  const capped = videos.slice().sort((a,b)=>matchScore(b)-matchScore(a)).slice(0,10);
-
-  empty.style.display = 'none';
-  tp.style.display    = 'block';
-  grid.innerHTML      = '';
-  grid.style.display  = 'flex';
-
-  const headerDiv = document.createElement('div');
-  headerDiv.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:4px;font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;';
-  headerDiv.innerHTML = `<span style="color:${cfg.color};">${cfg.emoji} ${cfg.label} — วิดีโอแนะนำ</span><span style="color:var(--text-dim);font-weight:400;">${capped.length} รายการ</span>`;
-  grid.appendChild(headerDiv);
-
-  const order = ['V','A','R','K']
-    .map(k => ({ k, score: Number((varkScores && varkScores[k]) || 0) }))
-    .sort((a,b) => b.score - a.score).filter(x => x.score > 0);
-  const totalScore = order.reduce((s,x) => s+x.score, 0) || 100;
-  const varkWeightDesc = order.map(({k,score}) => {
-    const pct  = Math.round((score/totalScore)*100);
-    const name = {V:'Visual',A:'Aural',R:'Read/Write',K:'Kinesthetic'}[k];
-    return `${k}=${pct}% (${name})`;
-  }).join(', ');
-
-  capped.forEach((v, idx) => {
-    const vid  = v.video_id;
-    const card = document.createElement('div');
-    card.className = 'yt-card';
-    if (vid) card.dataset.vid = vid;
-
-    if (v.is_search_link) {
-      card.innerHTML = `
-        <div style="width:120px;min-width:120px;display:flex;align-items:center;justify-content:center;background:var(--surface);flex-shrink:0;"><span style="font-size:22px">🔍</span></div>
-        <div class="yt-footer" style="flex:1;"><div class="yt-info">
-          <div class="yt-title">${v.title}</div>
-          <div class="yt-channel" style="color:var(--accent-v);margin-top:3px;">คลิกเพื่อค้นหาใน YouTube →</div>
-        </div></div>`;
-      card.style.cursor = 'pointer';
-      card.addEventListener('click', () => window.open(v.url, '_blank'));
-      grid.appendChild(card);
-      return;
-    }
-
-    card.innerHTML = `
-      <img class="yt-thumb" src="${v.thumbnail}" alt="${v.title}" loading="lazy">
-      <div class="yt-embed-wrap"><iframe data-src="${v.embed_url}?autoplay=1" allowfullscreen allow="autoplay; encrypted-media"></iframe></div>
-      <div class="yt-footer">
-        <div class="yt-info">
-          <div class="yt-vark-tags" id="vtags-${vid}">
-            <span class="yt-tag-skel"></span><span class="yt-tag-skel"></span>
-            <span class="yt-tag-skel"></span><span class="yt-tag-skel"></span>
-          </div>
-          <div class="yt-title">${v.title}</div>
-          <div class="yt-channel">${v.channel}</div>
-          <div class="yt-subtopics" id="subs-${vid}">
-            <span class="yt-subtopic-skel"></span><span class="yt-subtopic-skel"></span><span class="yt-subtopic-skel"></span>
-          </div>
-          <div class="yt-pages-row" id="pages-${vid}">
-            <span class="yt-pages-label">PDF:</span>
-            <span class="yt-pages-skel"></span>
-          </div>
-        </div>
-        <button class="btn-yt-like" data-vid="${vid}" onclick="toggleVideoLike(this,'${vid}')">👍 Like</button>
-      </div>
-    `;
-
-    card.querySelector('.yt-thumb').addEventListener('click', () => {
-      document.querySelectorAll('.yt-card.playing').forEach(c => {
-        c.classList.remove('playing');
-        const fi = c.querySelector('iframe');
-        if (fi) fi.src = '';
-      });
-      card.classList.add('playing');
-      const iframe = card.querySelector('iframe');
-      if (iframe && iframe.dataset.src) iframe.src = iframe.dataset.src;
-    });
-    grid.appendChild(card);
-
-    setTimeout(() => {
-      analyzeVideoVark(v, varkWeightDesc, order, learningMaterial).then(result => {
-        const tagsEl  = document.getElementById(`vtags-${vid}`);
-        const subsEl  = document.getElementById(`subs-${vid}`);
-        const pagesEl = document.getElementById(`pages-${vid}`);
-
-        if (tagsEl) tagsEl.innerHTML = result.vark.map(k => {
-          const c = VARK_CFG[k];
-          return `<span class="yt-vark-tag" style="color:${c.color};border-color:${c.color}55;background:${c.color}15;">${c.emoji} ${c.label.split('/')[0]}</span>`;
-        }).join('');
-
-        if (subsEl) subsEl.innerHTML = (result.subtopics||[]).length
-          ? result.subtopics.map(s=>`<span class="yt-subtopic-chip" title="${s}">${s}</span>`).join('')
-          : '';
-
-        if (pagesEl) {
-          const pages = result.pages_covered || [];
-          if (pages.length === 0) {
-            pagesEl.innerHTML = '<span class="yt-pages-label" style="opacity:0.4;">PDF: —</span>';
-          } else {
-            // Group consecutive pages into ranges e.g. [1,2,3,5,6] → "1–3", "5–6"
-            const ranges = [];
-            let start = pages[0], end = pages[0];
-            for (let i = 1; i < pages.length; i++) {
-              if (pages[i] === end + 1) { end = pages[i]; }
-              else { ranges.push([start, end]); start = end = pages[i]; }
-            }
-            ranges.push([start, end]);
-            const chips = ranges.map(([s,e]) => {
-              const label = s === e ? `${s}` : `${s}–${e}`;
-              const title = s === e ? `ไปหน้า ${s}` : `ไปหน้า ${s}–${e}`;
-              return `<span class="yt-page-range" title="${title}" onclick="scrollToPdfPage(${s})">${label}</span>`;
-            }).join('');
-            pagesEl.innerHTML = `<span class="yt-pages-label">PDF หน้า:</span>${chips}`;
-          }
-        }
-      });
-    }, idx * 350);
-  });
-}
-
-// ─── TYPHOON: วิเคราะห์ VARK tags + subtopics + pages_covered ─
-async function analyzeVideoVark(video, varkWeightDesc, order, learningMaterial) {
-  const vid = video.video_id;
-  if (videoVarkCache.has(vid)) return videoVarkCache.get(vid);
-
-  // Fallback แบบ proportional (ใช้เมื่อ API ไม่พร้อม)
-  function fallback() {
-    const primaryScore = order[0]?.score || 0;
-    const tags = order.length ? [order[0].k] : ['R'];
-    for (const { k, score } of order.slice(1)) {
-      if (score >= primaryScore * 0.5 && tags.length < 4) tags.push(k);
-    }
-    return { vark: tags, subtopics: [], pages_covered: [] };
-  }
-
-  // ── Step 1: ดึงข้อมูลเนื้อหาจริงของคลิปจาก backend ─────────
-  let description = '';
-  let vidTags     = [];
-  let topicCats   = [];
-  try {
-    const infoRes = await fetch(`${API_BASE}/video-info/${vid}`);
-    if (infoRes.ok) {
-      const info = await infoRes.json();
-      description = info.description       || '';
-      vidTags     = info.tags              || [];
-      topicCats   = info.topic_categories  || [];
-    }
-  } catch(e) {
-    console.warn(`video-info fetch error [${vid}]:`, e.message);
-  }
-
-  // ── Step 2: สร้าง page-snippet map จาก learning material ────
-  const totalPg = pdfDoc ? pdfDoc.numPages : 0;
-  const pageSnippets = [];
-  if (learningMaterial && totalPg > 0) {
-    const matLines  = learningMaterial.split('\n').filter(l => l.trim());
-    const chunkSize = Math.max(1, Math.ceil(matLines.length / totalPg));
-    for (let pg = 1; pg <= Math.min(totalPg, 30); pg++) {
-      const slice = matLines.slice((pg-1)*chunkSize, pg*chunkSize).join(' ').slice(0, 100).trim();
-      if (slice) pageSnippets.push(`p${pg}: ${slice}`);
-    }
-  }
-
-  // ── Step 3: build vark_style จาก order array ──────────────────
-  const varkStyle = { dominant: order[0]?.k || 'R' };
-  for (const { k, score } of order) varkStyle[k] = score;
-
-  try {
-    const res = await fetch(`${API_BASE}/classify-video`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title:            video.title,
-        channel:          video.channel,
-        description,
-        tags:             vidTags,
-        topic_categories: topicCats,
-        page_snippets:    pageSnippets,
-        vark_style:       varkStyle,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const parsed = await res.json();
-
-    const result = {
-      vark:          (parsed.vark && parsed.vark.length) ? parsed.vark : fallback().vark,
-      subtopics:     parsed.subtopics     || [],
-      pages_covered: parsed.pages_covered || [],
-    };
-    videoVarkCache.set(vid, result);
-    return result;
-
-  } catch(e) {
-    console.warn(`VARK AI tag error [${vid}]:`, e.message);
-    const fb = fallback();
-    videoVarkCache.set(vid, fb);
-    return fb;
-  }
-}
+// ─── VIDEOS (legacy stub — videos now embedded per section) ───
+function renderVideos() {}
 
 // ─── RESIZE HANDLE ────────────────────────────────────────────
 (function initColResize() {

@@ -44,7 +44,7 @@
     "source": "manual",
     "split": "train",
     "expected": {
-      "rationale": "K dominant + A secondary. Short definition, then ลองทำ practice in order: identify a_ij → add/subtract → scalar × → matrix ×. Each step has เฉลย button. End with 3 true/false on AB≠BA etc."
+      "rationale": "K dominant + A secondary. Short definition, then ลองทำ practice in order: identify a_ij → add/subtract → scalar × → matrix ×. Each step has 'ans' answer block. End with 3 true/false on AB≠BA etc."
     }
   },
   {
@@ -108,7 +108,7 @@
     "source": "manual",
     "split": "train",
     "expected": {
-      "rationale": "A dominant and K secondary. คนที่มี Aural ก่อนลงมือทำอะไรจะต้องให้บอกอย่างละเอียด expected a gTTS you can click to start and stop. Since the Subject requires alot of explanation. explain what is ธาตุและสารประกอบ and what's the difference between ธาตุ,สารประกอบ and ของผสม using Visual table. And 5 quiz to make student understand the difference about ธาตุ,สารประกอบ and ของผสม"
+      "rationale": "A dominant and K secondary. คนที่มี Aural ก่อนลงมือทำอะไรจะต้องให้บอกอย่างละเอียด. Since the Subject requires alot of explanation. explain what is ธาตุและสารประกอบ and what's the difference between ธาตุ,สารประกอบ and ของผสม using Visual table. And 5 quiz to make student understand the difference about ธาตุ,สารประกอบ and ของผสม"
     }
   },
   {
