@@ -172,20 +172,20 @@ GENERATOR_MODELS: dict[str, dict] = {
         "max_tokens": 16384,   # Typhoon API hard cap
         "temperature": 0.7,
     },
-    # "GPTOSS": {
-    #     "model": "openai/gpt-oss-120b:free",
-    #     "api_base": "https://openrouter.ai/api/v1",
-    #     "api_key_env": "OPENROUTER_API_KEY",
-    #     "max_tokens": 16384,
-    #     "temperature": 0.7,
-    # },
-    "Qwen3-next-instruct": {
-        "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "GPTOSS": {
+        "model": "openai/gpt-oss-120b:free",
         "api_base": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
         "max_tokens": 16384,
         "temperature": 0.7,
     },
+    # "Qwen3-next-instruct": {
+    #     "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+    #     "api_base": "https://openrouter.ai/api/v1",
+    #     "api_key_env": "OPENROUTER_API_KEY",
+    #     "max_tokens": 16384,
+    #     "temperature": 0.7,
+    # },
 }
 
 # ★★ MODEL ที่เว็บใช้ตอน Generate — "คนเขียนโค้ด" แก้ตรงนี้ที่เดียว ★★
@@ -1001,6 +1001,38 @@ def _render_report_body(report: dict, heading_level: int = 1) -> str:
         lines.append("")
 
     lines.append(f"{h2} Per-example output & feedback")
+    lines.append("")
+
+    for fb in report.get("feedbacks") or []:
+        i = fb.get("i")
+        total = fb.get("total")
+        shown = f"{total}/10" if total is not None else "ERR"
+        lines.append(f"{h3} Example {i} — {gen} total {shown}")
+        lines.append("")
+
+        scores = fb.get("scores")
+        if isinstance(scores, dict):
+            lines.append("**Scores:** " + ", ".join(
+                f"{c}: {scores.get(c, 0)}" for c in scores
+            ))
+            lines.append("")
+
+        review = (fb.get("feedback") or "").strip()
+        if review:
+            lines.append("**Feedback:**")
+            lines.append("")
+            lines.append(review)
+            lines.append("")
+
+        output = (fb.get("output") or "").strip()
+        if output:
+            # เรนเดอร์ output เป็น markdown ตรงๆ (ตาราง/หัวข้อ/dialogue render ออกมาจริง)
+            lines.append("**Output:**")
+            lines.append("")
+            lines.append(output)
+            lines.append("")
+
+    return "\n".join(lines)
 
 
 def _render_report_md(report: dict, comparison: str = "") -> str:
