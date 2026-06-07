@@ -2279,6 +2279,46 @@ function inlineMD(s) {
   return s;
 }
 
+// Convert a block of lines that is really a table — either an ASCII box table
+// (+---+---+ / | a | b |) or a Markdown pipe table — into a real <table>.
+// Returns the table HTML, or null if the lines are NOT a clean table (in which
+// case the caller keeps treating them as a code block). The model sometimes
+// emits comparison tables as fenced ASCII art; ASCII column alignment relies on
+// a fixed-width font, which proportional Thai glyphs break, so we recover the
+// real table structure instead of dumping monospace box-drawing.
+function tableLinesToHTML(lines) {
+  var rows    = [];
+  var sawSep  = false; // saw a +---+ ASCII border OR a |---| markdown separator
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
+    if (t === '') continue;
+    // Pure ASCII border: only + - = and spaces (no cell content)
+    if (/\+/.test(t) && /^[\s+\-=]*$/.test(t)) { sawSep = true; continue; }
+    if (/^\|.*\|$/.test(t)) {
+      // Markdown separator row like |---|:--:|
+      if (/^\|[\s\-:|]+\|$/.test(t)) { sawSep = true; continue; }
+      var parts = t.split('|');
+      rows.push(parts.slice(1, parts.length - 1).map(function (c) { return c.trim(); }));
+      continue;
+    }
+    return null; // a line that is neither border nor pipe row → not a clean table
+  }
+  if (!sawSep || rows.length < 2) return null; // need a separator + header + ≥1 body row
+  var ncol = 0;
+  rows.forEach(function (r) { if (r.length > ncol) ncol = r.length; });
+  if (ncol < 2) return null; // 1 column = a box-stack/flowchart diagram, not a table — keep it monospace
+  var html = '<table>';
+  for (var r = 0; r < rows.length; r++) {
+    var tag = (r === 0) ? 'th' : 'td';
+    html += '<tr>';
+    for (var c = 0; c < ncol; c++) {
+      html += '<' + tag + '>' + inlineMD(rows[r][c] !== undefined ? rows[r][c] : '') + '</' + tag + '>';
+    }
+    html += '</tr>';
+  }
+  return html + '</table>';
+}
+
 function parseMD(md) {
   var lines = md.split('\n');
   var out   = [];
@@ -2330,7 +2370,15 @@ function parseMD(md) {
         var innerHTML = parseMD(code.join('\n'));
         out.push('<details class="answer-block"><summary><span class="answer-summary-text">💡 ดูเฉลย</span></summary><div class="answer-body">' + innerHTML + '</div></details>');
       } else {
-        out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+        // A fenced block that is actually a table (ASCII box-drawing or pipe
+        // table) → render as a real <table>. Falls back to <pre><code> for
+        // genuine code/ASCII diagrams.
+        var fencedTable = tableLinesToHTML(code);
+        if (fencedTable) {
+          out.push(fencedTable);
+        } else {
+          out.push('<pre><code>' + code.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+        }
       }
       i++; continue;
     }
@@ -2365,6 +2413,25 @@ function parseMD(md) {
         out.push('<div class="math-block">' + mathRaw + '</div>');
         continue;
       }
+    }
+
+    // Unfenced ASCII box table: starts with a +---+ border line. Collect the
+    // contiguous border/pipe block and convert it to a real <table> (same
+    // reason as the fenced case). Falls back to a code block if it isn't a
+    // clean table, so nothing is lost.
+    if (/^\s*\+[-=+\s]*\+\s*$/.test(raw) && raw.indexOf('|') === -1) {
+      var atl = [];
+      while (i < lines.length) {
+        var lt = lines[i].trim();
+        var isBorder = /\+/.test(lt) && /^[\s+\-=]*$/.test(lt);
+        var isPipe   = /^\|.*\|$/.test(lt);
+        if (isBorder || isPipe) { atl.push(lines[i]); i++; }
+        else break;
+      }
+      var atHTML = tableLinesToHTML(atl);
+      if (atHTML) out.push(atHTML);
+      else out.push('<pre><code>' + atl.join('\n').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+      continue;
     }
 
     // Table: collect consecutive | lines, properly handle header/separator/body

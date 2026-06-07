@@ -172,10 +172,15 @@ GENERATOR_MODELS: dict[str, dict] = {
         "max_tokens": 16384,   # Typhoon API hard cap
         "temperature": 0.7,
     },
-    # ── ตัวอย่างการเพิ่ม model อื่นเข้า slot (แก้/ลบได้) ──
-    # เรียกผ่าน OpenRouter: ตั้ง OPENROUTER_API_KEY ใน .env แล้ว uncomment
-    "GPTOSS": {
-        "model": "openai/gpt-oss-120b:free",
+    # "GPTOSS": {
+    #     "model": "openai/gpt-oss-120b:free",
+    #     "api_base": "https://openrouter.ai/api/v1",
+    #     "api_key_env": "OPENROUTER_API_KEY",
+    #     "max_tokens": 16384,
+    #     "temperature": 0.7,
+    # },
+    "Qwen3-next-instruct": {
+        "model": "qwen/qwen3-next-80b-a3b-instruct:free",
         "api_base": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
         "max_tokens": 16384,
@@ -215,7 +220,6 @@ def build_generator_lm(label: str) -> dspy.LM:
 def configure_lm(api_key: Optional[str] = None):
     """ตั้ง global generator LM ที่เว็บใช้ตอน Generate (study guide + quiz)
 
-    ★ จุดเดียวที่ "คนเขียนโค้ด" กำหนด model ของ runtime ★
       → เปลี่ยน model ที่เว็บใช้ = แก้ค่า DEFAULT_GENERATOR ด้านบน
         ให้ชี้ไป label ใดก็ได้ใน GENERATOR_MODELS (เช่น "Typhoon" / "Qwen2.5")
       (ถ้าอยากใช้รุ่นใหม่ ให้เพิ่ม entry ใน GENERATOR_MODELS ก่อน แล้วตั้ง DEFAULT_GENERATOR)
@@ -282,7 +286,7 @@ class VARKProjector(dspy.Signature):
     - The content must cater to all learning dimensions by seamlessly embedding four distinct components. You must never omit any of these components.
     - **Strict Prohibition of Labels:** Do not include words like 'VARK', 'Visual', 'Auditory', 'Read/Write', 'Kinesthetic', 'Mode', 'For learners who prefer...', or tags like '(V)/(A)/(R)/(K)' anywhere in the output—whether in headings, body paragraphs, tables, bullets, or blockquotes. These terms are internal instructions only.
     - **Structural Organization:** Headings must be named naturally based on the actual concepts and topics of the subject matter (e.g., chapter names or conceptual subheadings). Within these natural sections, establish a unified baseline of knowledge and embed the following four components naturally into the text flow:
-    (a) Visual Elements: Markdown tables, ASCII diagrams, or comparative groupings.
+    (a) Visual Elements: Markdown pipe tables (| col | col |), comparative groupings, or hierarchical bullet structures.
     (b) Read/Write Elements: Textual explanations, well-formatted definitions, and structural summaries with key terms emphasized.
     (c) Auditory/Conversational Elements: Narrative prose integrated with occasional character dialogues.
     (d) Kinesthetic Elements: Step-by-step activities, practical exercises, and lessons learned.
@@ -291,7 +295,7 @@ class VARKProjector(dspy.Signature):
     5. Component Weights and Specific Definitions based on vark_style:
     - Adjust the depth of each component based on the dominant trait in the provided vark_style. The component corresponding to the dominant trait (e.g., dominant=V -> Visual element) must be the most detailed, extensive, and serve as the core anchor of the module. Other components must still be fully realized according to their definitions but expressed more concisely.
     - Concrete requirements for each component:
-    * Visual Component (V): You must include functional Markdown tables (|col|col|) and utilize clear comparative or hierarchical bullet structures. **Absolute Rule: Never reference or simulate images in any form.** Do not include any placeholder text or descriptions referring to non-existent imagery, diagrams, or graphics (e.g., avoid prefixes like 'Image:', 'Figure:', 'Diagram of...', 'Photo of...'). If you need to convey visual relationships, do so exclusively using actual Markdown tables, structural lists, or raw ASCII diagrams wrapped in code fences.
+    * Visual Component (V): You must include functional Markdown tables (|col|col|) and utilize clear comparative or hierarchical bullet structures. **Absolute Rule: Never reference or simulate images in any form.** Do not include any placeholder text or descriptions referring to non-existent imagery, diagrams, or graphics (e.g., avoid prefixes like 'Image:', 'Figure:', 'Diagram of...', 'Photo of...'). If you need to convey visual relationships, do so exclusively using actual Markdown pipe tables (| col | col |) or structural/hierarchical bullet lists. **Absolute Rule: Never render tabular or comparative data as ASCII art (e.g. +---+---+ box-drawing) or inside code fences (```)** — ASCII grids rely on fixed-width alignment that is broken by proportional Thai glyphs. Every comparison or data table MUST be a real Markdown pipe table.
     * Read/Write Component (R): Provide clear textual explanations using structured Markdown formats (headings, bullet points, numbered lists, and definition lists). You must highlight critical insights by **bolding key terms** and including bulleted summaries. Do not instruct learners to 'summarize in their own words' or 'paraphrase'. For exercises, use active recall, short-answer, or fill-in-the-blank formats with answers included. Supplement the text with reading or note-taking guidelines using terms such as definition, outline, note, principle, or observation.
     * Auditory/Conversational Component (A): Frame parts of the explanation as a story featuring a narrator who guides the user through the concepts, interspersed with targeted character dialogue (e.g., between a teacher and a student, or named personas). The structural constraints are:
         (1) At least 70% of this component must consist of standard narrative paragraphs (without using the `>` blockquote symbol) to establish context, explain theories, and elaborate on concepts.
@@ -410,11 +414,10 @@ class QuizGenerator(dspy.Signature):
     3) Each question must be clear and unambiguous, and **do not ask about the same point more than once** — spread them to cover multiple topics in the content.
 
     **Adjust the question style to the dominant VARK trait in `vark_style`**:
-    V (Visual) = based on tables / comparative structures / groupings / hierarchies, e.g. "From the following table, which option..." (describe the data as text; do not reference images that do not exist);
-    A (Auditory) = based on dialogue / narrative scenarios / listening, e.g. "In the dialogue, the teacher says... — what does it mean?";
-    R (Read/Write) = based on written definitions / terminology / principles / ordered steps, e.g. "Which of the following is the correct definition of...?";
-    K (Kinesthetic) = based on hands-on doing / problem solving / real scenarios / bug finding, e.g. "If you want to..., which step should you take?".
-    **Do not create matching-type questions of any kind.**
+    - Visual (V): Focuses on charts, diagrams, hierarchies, shapes, and clear spatial layouts. Avoids heavy text blocks.
+    - Auditory (A): Focuses on discussions, lectures, verbal analogies, podcasts, and rhythm/sound metaphors.
+    - Read/Write (R): Focuses on text-based explanations, lists, definitions, essays, and manuals.
+    - Kinesthetic (K): Focuses on concrete examples, real-world applications, hands-on scenarios, case studies, and physical trials.
 
     **Choice quality (4 options A–D):**
     4) The distractors (the 3 wrong options) must be reasonable, believable, and close to the real answer — they must not be so obviously wrong that the answer can be guessed instantly.
@@ -560,7 +563,7 @@ import re as _re
 JUDGE_MODEL_A = os.environ.get("JUDGE_MODEL_A", "gemini/gemini-3.1-flash-lite")
 
 # เกณฑ์รายข้อ (ตัด sub-sub items ออกแล้ว — เหลือ A.1–A.4, B.1–B.5)
-VARK_CRITERIA = ["A.1", "A.2", "A.3", "A.4", "B.1", "B.2", "B.3", "B.4", "B.5"]
+VARK_CRITERIA = ["A.1", "A.2", "A.3", "A.4", "A.5","B.1", "B.2", "B.3", "B.4", "B.5"]
 QUIZ_CRITERIA = [f"C.{i}" for i in range(1, 11)]
 VIDEO_CRITERIA = [f"D.{i}" for i in range(1, 9)]  # D.1–D.8 (pipeline: query + relevance)
 
@@ -584,9 +587,6 @@ def configure_judge(
     gemini_key: Optional[str] = None,
     model: Optional[str] = None,
 ) -> dspy.LM:
-    """สร้าง Gemini judge LM ตัวเดียว — cache ใน _JUDGE สำหรับ reuse
-      key = GEMINI_API_KEY (.env)
-    """
     g_key = (
         gemini_key
         or os.environ.get("GEMINI_API_KEY")
@@ -598,7 +598,7 @@ def configure_judge(
         model=model or JUDGE_MODEL_A,
         api_key=g_key.strip(),
         # scores + feedback (รีวิวรวมเป็น string เดียว) — เผื่อ output ยาวพอ
-        max_tokens=2000,
+        max_tokens=16000,
         temperature=0.0,
         cache=False,
     )
@@ -640,33 +640,56 @@ def _criteria_total_0_10(per: dict, criteria: list[str]) -> float:
 class VARKJudgeScore(dspy.Signature):
     """You are an expert educational auditor specializing in VARK learning
     methodologies. Evaluate a generated VARK study guide (learning material)
-    against the criteria below. Score **each criterion 0–10 points**
-    (10 = fully complete, 0 = missing / completely failing, in between proportional to completeness).
+    against the criteria below. Score **each criterion 0–10**, judging the
+    QUALITY of each dimension — NOT merely whether a component is present.
 
-    - A. Completeness & Compliance (completeness vs. the lesson's topics)
-    A.1 All topics present per the lesson — covers every main topic in `context`
-    A.2 Completeness of each topic's content — fully explained, not truncated, with a clear instructional structure
-    A.3 Has a study guide covering all VARK styles (Visual / Auditory / Read-Write / Kinesthetic)
-    A.4 Has an end-of-lesson Quiz / exercises that are complete and consistent with the content
+    ── Anchored scoring bands (STRICT EVALUATION) ──
+    9–10 = Exceptional Masterpiece: Genuinely publication-ready. Explanations show profound 
+        pedagogical insight, analogies are brilliant, layouts are flawless.
+    7–8  = Excellent/Good: Solid, highly accurate, and complete. This is the EXPECTED score 
+        for high-quality generation with no obvious errors.
+    4–6  = Average/Mediocre: Present but generic, uses shallow/robotic explanations, 
+        or contains minor formatting inconsistencies.
+        
+    Treat the following as serious quality defects that pull a criterion DOWN
+    into the mediocre band or lower (the more severe or numerous, the lower) —
+    a criterion exhibiting any of them cannot be rated Excellent:
+      - Truncation: content cut off mid-sentence/table/section (e.g. a cheat sheet
+        or activity that stops partway).
+      - Absolute-Rule violations: leaking explicit learning-style labels
+        ('VARK','Visual','Auditory','Read/Write','Kinesthetic','(V)/(A)/(R)/(K)');
+        matching exercises (term-to-definition); tables drawn as ASCII art /
+        box-art or inside code fences instead of real Markdown pipe tables;
+        simulated images ('Image:','Figure:','Diagram of...'); answers of questions exposed in
+        body text instead of inside an 'ans' block.
 
-    - B. Content Completeness
-    Simply check whether these components are present and complete (no need to look at the vark_style dominant):
-    B.1 Read/Write: highlights key topics and includes a content summary
-    B.2 Visual: has visual components (mind map/diagram/table/ASCII diagram)
-    B.3 Auditory: has narration/storytelling/summary in narration or dialogue form
-    B.4 Kinesthetic: has hands-on activities / experiment examples + lesson learnt
-    B.5 Has a tutorial-style pre-exam review summary — covering all key points across every topic
+    - A. Coverage & instructional quality (vs. the lesson's topics)
+    A.1 Topic coverage — judge breadth: every main topic in `context` is present;
+        dropping whole topics scores low even if what remains is good.
+    A.2 Depth & correctness per topic — each topic fully and accurately explained
+        with clear instructional structure; thin, padded, or truncated topics score low.
+    A.3 All four learning dimensions are woven in AND each genuinely serves
+        learning, not a hollow checkbox.
+    A.4 End-of-lesson quiz/exercise quality — answerable from the material,
+        targets key points, with a correct answer key.
+    A.5 Can be used effectively for the student to learn (educational quality, clarity, and usefulness)
+    
+    - B. Per-component QUALITY (how WELL each is done, not mere presence)
+    B.1 Read/Write: key terms emphasized and an accurate, well-structured summary
+        that is genuinely useful for review (not a bare restatement).
+    B.2 Visual: Markdown pipe tables / hierarchical structures that are correct,
+        information-dense, and clarify relationships (a trivial 2-row filler
+        table is mediocre, not excellent).
+    B.3 Auditory: narration/dialogue that genuinely explains concepts and reads
+        naturally; filler or off-topic dialogue scores low.
+    B.4 Kinesthetic: a concrete, do-able hands-on activity (real steps/data/
+        scenario) ending in a 'Lesson Learnt' that states a real insight, not a
+        generic platitude.
+    B.5 Pre-exam review / cheat sheet that is complete to the end (NOT truncated)
+        and condenses the key points of EVERY topic into scannable form.
 
-    Note: B is judged purely on "content completeness", not on suitability for an individual learner.
-
-    Output:
-      `scores` = a JSON object of all 9 criteria, integer values 0–10, e.g.
-        {"A.1":10,"A.2":8,"A.3":7,"A.4":5,"B.1":9,"B.2":10,"B.3":4,"B.4":3,"B.5":8}
-        Respond with JSON ONLY, no markdown fence or other text.
-      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
-        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
-        (name the criterion, e.g. "B.3 got 4 because...") along with strengths and what should be added.
-        Put everything in one paragraph; do not split it into per-criterion JSON.
+    Note: B judges the execution quality of each component, not its suitability
+    for an individual learner (do not look at the vark_style dominant).
     """
     context = dspy.InputField(desc="Original source content (text from PDF/document)")
     vark_style = dspy.InputField(
@@ -680,12 +703,18 @@ class VARKJudgeScore(dspy.Signature):
     )
     learning_material = dspy.InputField(desc="Generated study guide to evaluate")
     scores = dspy.OutputField(
-        desc='A JSON object of all 9 criteria (A.1–A.4, B.1–B.5), integer values 0–10'
+        desc='A JSON object of all 10 criteria (A.1–A.5, B.1–B.5), integer values 0–10'
     )
     feedback = dspy.OutputField(
-        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
-             "(below 6): why it received only that score, citing the criterion name (e.g. 'B.3 got 4 because...') "
-             "along with strengths and what to add. Do not split it into per-criterion items."
+        desc="""A review written entirely in Thai. Structure: FIRST, output a score list with newline per criteria
+             example
+             "Feedback: Vark"
+             "A.1: 6/10"
+             "A.2: 3/10"
+             "A.3: 9/10"
+             FINALLY, provide a single, continuous paragraph 
+             Every criterion scoring below 8 must be explicitly explained by name (e.g., 'A.5 got 4 because...') 
+             detailing its weaknesses, alongside general strengths and improvements. Do not use bullet points or extra JSON headers."""
     )
 
 #QUIZ JUDGE
@@ -710,15 +739,7 @@ class QuizJudgeScore(dspy.Signature):
     - Format & Alignment
     C.9 JSON valid + every item has all keys (q, options, answer, vark, explanation)
     C.10 `vark` tag is appropriate for the question, and the language matches `learning_material` (Thai→Thai)
-
-    Output:
-      `scores` = a JSON object of C.1–C.10, integer values 0–10, e.g.
-        {"C.1":10,"C.2":8,"C.3":9,"C.4":6,"C.5":7,"C.6":10,"C.7":10,"C.8":9,"C.9":10,"C.10":5}
-        Respond with JSON ONLY, no markdown fence or other text.
-      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
-        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
-        (name the criterion, e.g. "C.4 got 5 because...") along with strengths and what should be improved.
-        Put everything in one paragraph; do not split it into per-criterion JSON.
+    
     """
     learning_material = dspy.InputField(desc="Source material the quiz is based on")
     vark_style = dspy.InputField(desc="Target VARK profile JSON")
@@ -734,20 +755,26 @@ class QuizJudgeScore(dspy.Signature):
         desc="A JSON object of C.1–C.10, integer values 0–10"
     )
     feedback = dspy.OutputField(
-        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
-             "(below 6): why it received only that score, citing the criterion name (e.g. 'C.4 got 5 because...') "
-             "along with strengths and what to improve. Do not split it into per-criterion items."
+        desc="""A review written entirely in Thai. Structure: FIRST, output a score list with newline per criteria
+             example
+             "Feedback: Quiz"
+             "C.1: 6/10"
+             "C.2: 3/10"
+             "C.3: 9/10"
+             FINALLY, provide a single, continuous paragraph 
+             Every criterion scoring below 8 must be explicitly explained by name (e.g., 'C.5 got 4 because...') 
+             detailing its weaknesses, alongside general strengths and improvements. Do not use bullet points or extra JSON headers."""
     )
 
 
-def _vark_judge(example, prediction, judge_lm, with_reference: bool = True):
+def _vark_judge(example, prediction, judge_lm, with_reference: bool = True): 
     """รัน VARK judge (Gemini) 1 ครั้ง บน 1 example
     คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err) ถ้า error
     feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
     with_reference=False → blind mode (judge ไม่เห็น expected/rationale)
     """
-    judge = dspy.Predict(VARKJudgeScore)
-    material = (getattr(prediction, "learning_material", "") or "")[:5000]
+    judge = dspy.ChainOfThought(VARKJudgeScore)
+    material = getattr(prediction, "learning_material", "") or ""
     ctx = (example.context or "")[:3000]
     reference = _format_reference(example) if with_reference else ""
     try:
@@ -757,6 +784,7 @@ def _vark_judge(example, prediction, judge_lm, with_reference: bool = True):
                 vark_style=example.vark_style,
                 reference_rationale=reference,
                 learning_material=material,
+                cache = False
             )
     except Exception as e:
         print(f"[vark_judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
@@ -770,31 +798,12 @@ def _vark_judge(example, prediction, judge_lm, with_reference: bool = True):
     return per, _criteria_total_0_10(per, VARK_CRITERIA), fb
 
 
-def vark_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """LLM-as-Judge metric (Gemini, A/B rubric) — คืน 0.0–1.0 (total_0_10 / 10)
-    threshold 0.5 ≈ "ผ่านครึ่งหนึ่งของเกณฑ์"; คืน 0.0 ถ้า judge ไม่พร้อมใช้
-    """
-    try:
-        judge = _get_judge()
-    except Exception as e:
-        if trace:
-            print(f"[vark_metric] judge unavailable ({e}) — return 0.0")
-        return 0.0
-
-    per, total, _ = _vark_judge(example, prediction, judge)
-    if per is None:
-        return 0.0
-    if trace:
-        print(f"[vark_metric] {_judge_label(JUDGE_MODEL_A)} total={total}/10  {per}")
-    return round(total / 10.0, 4)
-
-
 def _quiz_judge(example, prediction, judge_lm, with_reference: bool = True):
     """รัน Quiz judge (Gemini) 1 ครั้ง บน 1 example
     คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err)
     feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
     """
-    judge = dspy.Predict(QuizJudgeScore)
+    judge = dspy.ChainOfThought(QuizJudgeScore)
     questions = (getattr(prediction, "questions", "") or "")[:6000]
     material = (example.learning_material or "")[:4000]
     reference = _format_quiz_reference(example) if with_reference else ""
@@ -818,73 +827,59 @@ def _quiz_judge(example, prediction, judge_lm, with_reference: bool = True):
     return per, _criteria_total_0_10(per, QUIZ_CRITERIA), fb
 
 
-def quiz_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """LLM-as-Judge metric สำหรับ QuizModule (Gemini, C rubric) → 0.0–1.0"""
-    try:
-        judge = _get_judge()
-    except Exception as e:
-        if trace:
-            print(f"[quiz_metric] judge unavailable ({e}) — return 0.0")
-        return 0.0
-
-    per, total, _ = _quiz_judge(example, prediction, judge)
-    if per is None:
-        return 0.0
-    if trace:
-        print(f"[quiz_metric] {_judge_label(JUDGE_MODEL_A)} total={total}/10")
-    return round(total / 10.0, 4)
-
-
 # VIDEO JUDGE
+
 class VideoPipelineJudge(dspy.Signature):
-    """You are an evaluation judge for a YouTube-video recommendation pipeline.
-    The pipeline has 2 stages: (1) generate search queries from the PDF content, (2) actually search YouTube
-    and select the relevant clips + classify the VARK of each selected clip.
-    Evaluate the overall result against criteria D.1–D.8, **0–10 points each** (10 = fully passes, 0 = completely fails).
+    """
+    You are an evaluation judge for a YouTube-video recommendation pipeline.
+    The pipeline has 2 stages: (1) generate search queries from the PDF content, 
+    (2) search YouTube, select relevant clips, and classify the VARK learning style of each clip.
+    
+    Evaluate the overall result against criteria D.1–D.10, 0–10 points each (10 = fully passes, 0 = completely fails).
 
     - Query Quality
-    D.1 `youtube_queries` match the topic/content in `pdf_content` (searching with them returns relevant clips)
-    D.2 The queries are varied, covering multiple aspects/subtopics, not duplicating each other (3–5 queries)
-    D.3 The language of the queries matches the content (Thai content→Thai, English→English; technical terms may stay original)
+    D.1 `youtube_queries` match the topic/content in `pdf_content`
+    D.2 The queries are varied, covering multiple aspects/subtopics (3–5 queries)
+    D.3 The language of the queries matches the content (Thai→Thai, English→English)
 
     - Selection Quality
-    D.4 The clips selected in `relevant_indices` are actually relevant to the topic (judged from title/transcript)
+    D.4 The clips selected in `relevant_indices` are actually relevant to the topic
     D.5 No off-topic clips slipped into `relevant_indices` (no false positives)
 
     - VARK Classification
     D.6 `vark_per_video` assigns V/A/R/K of each selected clip correctly per the clip's actual nature
-        (V=diagram/animation/slide, A=lecture/talk/narration, R=text/code, K=hands-on/demo)
 
     - Format & Validity
-    D.7 `relevant_indices` is a JSON array of sequence numbers that actually exist in the list (valid index)
-    D.8 `vark_per_video` is a JSON object whose keys match the selected indices + values are the letters V/A/R/K
+    D.7 `relevant_indices` is a valid JSON array of sequence numbers that actually exist
+    D.8 `vark_per_video` is a JSON object whose keys match the selected indices
 
-    Note: if the video list is empty / has no transcript (e.g. no YOUTUBE_API_KEY), evaluate
-    D.4–D.8 as far as possible from the available data, and weight D.1–D.3 (query quality) as the main focus.
+    - Overall Integration & Accuracy
+    D.9 Strategic alignment between the generated queries and the ultimate quality of the fetched results
+    D.10 Overall calibration of the system's evaluation and format constraints
 
-    Output:
-      `scores` = a JSON object of D.1–D.8, integer values 0–10, e.g.
-        {"D.1":10,"D.2":8,"D.3":10,"D.4":7,"D.5":6,"D.6":8,"D.7":10,"D.8":9}
-        Respond with JSON ONLY, no markdown fence or other text.
-      `feedback` = a review summary as a "single piece of text" (in English) — written as a continuous paragraph.
-        **Every criterion that scored low (below 6) must be explained in this paragraph: why it received only that score**
-        (name the criterion, e.g. "D.5 got 4 because...") along with strengths and what should be improved.
-        Put everything in one paragraph; do not split it into per-criterion JSON.
+    Note: If the video list is empty, evaluate D.4–D.10 as far as possible, and focus heavily on D.1–D.3.
     """
+    
     pdf_content = dspy.InputField(desc="Source content from the PDF the learner is studying")
     youtube_queries = dspy.InputField(desc="The search queries the system generated (JSON array)")
-    videos_with_transcripts = dspy.InputField(
-        desc="The list of videos actually found, numbered, with title/channel/views/transcript"
-    )
+    videos_with_transcripts = dspy.InputField(desc="The list of videos found, numbered, with metadata and transcripts")
     relevant_indices = dspy.InputField(desc="Sequence numbers of clips the system selected as relevant (JSON array)")
-    vark_per_video = dspy.InputField(desc="Map of sequence number→VARK assigned by the system (JSON object)")
-    scores = dspy.OutputField(desc="A JSON object of D.1–D.8, integer values 0–10")
-    feedback = dspy.OutputField(
-        desc="A review summary as a single piece of text (in English) in one paragraph — must explain every criterion that scored low "
-             "(below 6): why it received only that score, citing the criterion name (e.g. 'D.5 got 4 because...') "
-             "along with strengths and what to improve. Do not split it into per-criterion items."
+    vark_per_video = dspy.InputField(desc="Map of sequence number to VARK assigned by the system (JSON object)")
+    
+    scores = dspy.OutputField(
+        desc="A raw JSON object containing the integer scores for D.1 through D.10 Example: {\"D.1\":10,\"D.2\":8,...}"
     )
-
+    feedback = dspy.OutputField(
+        desc="""A review written entirely in Thai. Structure: FIRST, output a score list with newline per criteria
+             example 
+             "Feedback: Video"
+             "D.1: 6/10"
+             "D.2: 3/10"
+             "D.3: 9/10"
+             FINALLY, provide a single, continuous paragraph 
+             Every criterion scoring below 8 must be explicitly explained by name (e.g., 'D.5 got 4 because...') 
+             detailing its weaknesses, alongside general strengths and improvements. Do not use bullet points or extra JSON headers."""
+    )
 
 def _video_pipeline_judge(pdf_content, youtube_queries, videos_with_transcripts,
                           relevant_indices, vark_per_video, judge_lm):
@@ -892,7 +887,7 @@ def _video_pipeline_judge(pdf_content, youtube_queries, videos_with_transcripts,
     คืน (per_criterion dict, total_0_10, feedback) หรือ (None, -1.0, err)
     feedback = รีวิวรวมเป็น string เดียว (judge เขียนเอง ไม่แยกราย criterion)
     """
-    judge = dspy.Predict(VideoPipelineJudge)
+    judge = dspy.ChainOfThought(VideoPipelineJudge)
     try:
         with dspy.context(lm=judge_lm):
             result = judge(
@@ -901,6 +896,7 @@ def _video_pipeline_judge(pdf_content, youtube_queries, videos_with_transcripts,
                 videos_with_transcripts=(videos_with_transcripts or "")[:8000],
                 relevant_indices=(relevant_indices or "")[:500],
                 vark_per_video=(vark_per_video or "")[:1000],
+                cache = False
             )
     except Exception as e:
         print(f"[video_judge:{getattr(judge_lm, 'model', '?')}] error: {type(e).__name__}: {e}")
@@ -1005,29 +1001,6 @@ def _render_report_body(report: dict, heading_level: int = 1) -> str:
         lines.append("")
 
     lines.append(f"{h2} Per-example output & feedback")
-    lines.append("")
-    for fb in report.get("feedbacks", []):
-        i = fb.get("i")
-        total = fb.get("total")
-        total_str = f"{total}/10" if total is not None and total >= 0 else "ERR"
-        lines.append(f"{h3} Example {i} — total {total_str}")
-        lines.append("")
-        scores = fb.get("scores")
-        if isinstance(scores, dict) and scores:
-            lines.append("**Scores:** "
-                         + ", ".join(f"{c}={v}" for c, v in scores.items()))
-            lines.append("")
-        lines.append(f"**{gen} output:**")
-        lines.append("")
-        lines.append("````markdown")
-        lines.append((fb.get("output") or "").rstrip())
-        lines.append("````")
-        lines.append("")
-        lines.append("**Feedback:**")
-        lines.append("")
-        lines.append((fb.get("feedback") or "").strip() or "_(no feedback)_")
-        lines.append("")
-    return "\n".join(lines)
 
 
 def _render_report_md(report: dict, comparison: str = "") -> str:
@@ -1181,9 +1154,8 @@ def evaluate_testset(module, testset: list, blind: bool = False,
                           "output": out_text,
                           "feedback": fb})
         shown = f"{total}/10" if per is not None else "ERR"
-        print(f"  [{i:>3}/{n}] {gen_label} total={shown}")
-        if fb:
-            print(f"        feedback: {fb}")
+        print(f"[{i}/{n}] {gen_label} total={shown}")
+        print(f"{fb}")
 
     report = _build_criteria_report(
         f"VARK [{mode}]", n, totals, per_list, VARK_CRITERIA,
@@ -1245,9 +1217,7 @@ def evaluate_quiz_testset(module, testset: list, blind: bool = False,
         print("[Quiz eval] questions:\n")
         print(pred.questions or "(empty)")
         print("─" * 70)
-        if fb:
-            print(f"        feedback: {fb}")
-
+        print(fb)
     report = _build_criteria_report(
         f"Quiz [{mode}]", n, totals, per_list, QUIZ_CRITERIA,
         JUDGE_MODEL_A.split("/")[-1], mode,
@@ -1355,9 +1325,7 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
         print("[Video eval] output:\n")
         print(output_blob)
         print("─" * 70)
-        if fb:
-            print(f"        feedback: {fb}")
-
+        print(fb)
     extra = {"feedbacks": feedbacks, "generator": gen_label}
     report = _build_criteria_report(
         f"Video [{mode}]", n, totals, per_list, VIDEO_CRITERIA,
