@@ -1783,10 +1783,7 @@ if __name__ == "__main__":
         elif not os.environ.get("YOUTUBE_API_KEY"):
             print("❌ YOUTUBE_API_KEY required for --enrich")
             sys.exit(1)
-        else:
-            import enrich_video_dataset as evd
-            # ใช้ train อย่างเดียว (ไม่ใช้ val/test แยก)
-            evd.enrich_file("dataset/train/video_train.json")
+
 
     # ── 2. ทุก module เป็น zero-shot (ไม่มี compile step แล้ว) ──
     # การทำงานหลักคือ eval ด้วย Gemini judge บน zero-shot module / โมเดลที่โหลด
