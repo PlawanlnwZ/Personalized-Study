@@ -126,10 +126,36 @@ async def extract_pdf_text(pdf_bytes: bytes) -> str:
 # ──────────────────────────────────────────────
 # Helper: Search YouTube
 # ──────────────────────────────────────────────
+def _fix_json_escapes(s: str) -> str:
+    """
+    แก้ backslash ที่ไม่ valid ใน JSON string ให้กลายเป็น \\\\ ที่ถูกต้อง
+    โมเดลมักเขียน KaTeX เป็น single backslash (\\[ , \\frac, \\approx) ทั้งที่ JSON
+    ต้องใช้ double backslash → ทำให้ json.loads ล้มด้วย 'Invalid \\escape'
+    ฟังก์ชันนี้ปล่อย escape ที่ถูกต้องไว้ (\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX)
+    และ "ทำให้ถูก" เฉพาะ backslash เดี่ยว ๆ ที่ตามด้วยตัวอักษรอื่น
+    """
+    def repl(m: "re.Match") -> str:
+        bs  = m.group(1)            # run ของ backslash ที่ติดกัน
+        nxt = m.group(2)            # ตัวอักษรถัดไป (อาจเป็น '')
+        n   = len(bs)
+        pairs = "\\\\" * (n // 2)   # คู่ที่สมบูรณ์ = escaped backslash อยู่แล้ว
+        if n % 2 == 0:
+            return pairs + nxt
+        # เหลือ backslash เดี่ยว 1 ตัว — เก็บเฉพาะ escape ที่ "ชัดเจน" ไว้
+        # (\" \\ \/ \uXXXX) ส่วน \f \b \n \r \t ถือเป็นคำสั่ง LaTeX (\frac \theta …)
+        # ไม่ใช่ control char → double ให้กลายเป็น backslash literal เพื่อกัน KaTeX พัง
+        if nxt in '"/u':
+            return pairs + "\\" + nxt    # เป็น escape ที่ถูกต้อง → คงไว้
+        return pairs + "\\\\" + nxt      # ที่เหลือ → escape ให้เป็น backslash literal
+
+    return re.sub(r"(\\+)(.?)", repl, s, flags=re.DOTALL)
+
+
 def _parse_json_loose(raw: str) -> list:
     """
     Parse JSON array อย่าง robust — strip markdown fences, whitespace, trailing commas
     รองรับ DSPy ChainOfThought ที่อาจมี reasoning text นำหน้า JSON array
+    และ KaTeX backslash ที่ escape ไม่ครบ (\\[ , \\frac, ...)
     """
     text = raw.strip()
 
@@ -138,26 +164,30 @@ def _parse_json_loose(raw: str) -> list:
     text = re.sub(r"\s*```", "", text)
     text = text.strip()
 
-    # ── ลอง find JSON array [...] ที่อยู่ในข้อความ (รองรับ CoT prefix) ──
-    array_match = re.search(r'\[.*?\]', text, re.DOTALL)
-    if array_match:
-        candidate = array_match.group(0)
+    # ── ตัดเอาเฉพาะ array ก้อนนอกสุด: จาก '[' ตัวแรกถึง ']' ตัวสุดท้าย ──
+    #    (greedy — กัน ']' ที่อยู่กลางสูตร KaTeX อย่าง \\] ตัดก้อนสั้นเกินไป)
+    start = text.find("[")
+    end   = text.rfind("]")
+    if start != -1 and end > start:
+        candidate = text[start:end + 1]
         # strip trailing commas before ] or }
         candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-        try:
-            result = json.loads(candidate)
-            if isinstance(result, list) and result:
-                return result
-        except Exception:
-            pass
+        for attempt in (candidate, _fix_json_escapes(candidate)):
+            try:
+                result = json.loads(attempt)
+                if isinstance(result, list) and result:
+                    return result
+            except Exception:
+                pass
 
     # ── ลอง parse ทั้ง string ──
     clean = re.sub(r",\s*([}\]])", r"\1", text)
-    try:
-        result = json.loads(clean)
-        return result if isinstance(result, list) else [result]
-    except Exception:
-        pass
+    for attempt in (clean, _fix_json_escapes(clean)):
+        try:
+            result = json.loads(attempt)
+            return result if isinstance(result, list) else [result]
+        except Exception:
+            pass
 
     # ── last-resort: extract quoted strings ──
     found = re.findall(r'"([^"\n]{5,})"', text)

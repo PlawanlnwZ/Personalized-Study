@@ -191,7 +191,7 @@ GENERATOR_MODELS: dict[str, dict] = {
 # ★★ MODEL ที่เว็บใช้ตอน Generate — "คนเขียนโค้ด" แก้ตรงนี้ที่เดียว ★★
 # ต้องเป็น key ใน GENERATOR_MODELS ข้างบน (เช่น "Typhoon" หรือ "Qwen2.5")
 # (ค่านี้ยังใช้เป็น fallback label ใน eval report ด้วย)
-DEFAULT_GENERATOR = "GPTOSS"
+DEFAULT_GENERATOR = "Typhoon"
 
 
 def build_generator_lm(label: str) -> dspy.LM:
@@ -266,12 +266,13 @@ class VARKProjector(dspy.Signature):
     )
     
     learning_material: str = dspy.OutputField(
-        desc="""Generate a comprehensive learning module based on the provided context/PDF by strictly adhering to the following rules and absolute constraints:
+        desc="""
+    Generate a comprehensive learning module based on the provided context/PDF by strictly adhering to the following rules and absolute constraints:
     1. Language Consistency:
     - Use the same language as the context/PDF. If the context is in English, the entire output must be written in English. Maintain technical terms or source examples in their original language as required by the context.
 
     2. Completeness and Length (Highest Priority):
-    - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information. Each distinct topic in the context must have its own dedicated paragraph or subsection.
+    - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information.
     - The length of the generated output must scale according to the size of the provided context:
     * Short context (<500 words) -> Output must be >= 800 words.
     * Medium context (500–2,000 words) -> Output must be >= 1,500 words.
@@ -282,30 +283,34 @@ class VARKProjector(dspy.Signature):
     - **Absolute Rule:** The opening delimiter, the mathematical formula, and the closing delimiter must all reside on the exact same line. For example: \\[ z = \\frac{401.8 - 393.3}{393.3} \\approx 0.0216 \\]
     - Do not insert any line breaks between the delimiters and the formula, as this breaks KaTeX rendering. For multiple equations, separate them by assigning exactly one fully self-contained equation per line.
 
-    4. Structure and Prohibited Learning-Style Labels:
-    - The content must cater to all learning dimensions by seamlessly embedding four distinct components. You must never omit any of these components.
-    - **Strict Prohibition of Labels:** Do not include words like 'VARK', 'Visual', 'Auditory', 'Read/Write', 'Kinesthetic', 'Mode', 'For learners who prefer...', or tags like '(V)/(A)/(R)/(K)' anywhere in the output—whether in headings, body paragraphs, tables, bullets, or blockquotes. These terms are internal instructions only.
-    - **Structural Organization:** Headings must be named naturally based on the actual concepts and topics of the subject matter (e.g., chapter names or conceptual subheadings). Within these natural sections, establish a unified baseline of knowledge and embed the following four components naturally into the text flow:
-    (a) Visual Elements: Markdown pipe tables (| col | col |), comparative groupings, or hierarchical bullet structures.
-    (b) Read/Write Elements: Textual explanations, well-formatted definitions, and structural summaries with key terms emphasized.
-    (c) Auditory/Conversational Elements: Narrative prose integrated with occasional character dialogues.
-    (d) Kinesthetic Elements: Step-by-step activities, practical exercises, and lessons learned.
-    - Conclude the entire document with a dedicated **Cheat Sheet** section. This section must condense all major takeaways and core concepts from the entire module into highly scannable bullet points or summary tables for rapid pre-exam review.
-
-    5. Component Weights and Specific Definitions based on vark_style:
-    - Adjust the depth of each component based on the dominant trait in the provided vark_style. The component corresponding to the dominant trait (e.g., dominant=V -> Visual element) must be the most detailed, extensive, and serve as the core anchor of the module. Other components must still be fully realized according to their definitions but expressed more concisely.
-    - Concrete requirements for each component:
-    * Visual Component (V): You must include functional Markdown tables (|col|col|) and utilize clear comparative or hierarchical bullet structures. **Absolute Rule: Never reference or simulate images in any form.** Do not include any placeholder text or descriptions referring to non-existent imagery, diagrams, or graphics (e.g., avoid prefixes like 'Image:', 'Figure:', 'Diagram of...', 'Photo of...'). If you need to convey visual relationships, do so exclusively using actual Markdown pipe tables (| col | col |) or structural/hierarchical bullet lists. **Absolute Rule: Never render tabular or comparative data as ASCII art (e.g. +---+---+ box-drawing) or inside code fences (```)** — ASCII grids rely on fixed-width alignment that is broken by proportional Thai glyphs. Every comparison or data table MUST be a real Markdown pipe table.
-    * Read/Write Component (R): Provide clear textual explanations using structured Markdown formats (headings, bullet points, numbered lists, and definition lists). You must highlight critical insights by **bolding key terms** and including bulleted summaries. Do not instruct learners to 'summarize in their own words' or 'paraphrase'. For exercises, use active recall, short-answer, or fill-in-the-blank formats with answers included. Supplement the text with reading or note-taking guidelines using terms such as definition, outline, note, principle, or observation.
-    * Auditory/Conversational Component (A): Frame parts of the explanation as a story featuring a narrator who guides the user through the concepts, interspersed with targeted character dialogue (e.g., between a teacher and a student, or named personas). The structural constraints are:
-        (1) At least 70% of this component must consist of standard narrative paragraphs (without using the `>` blockquote symbol) to establish context, explain theories, and elaborate on concepts.
-        (2) Dialogue must be enclosed in a blockquote, beginning exactly with a short situational description, followed by the character lines on subsequent rows. For example:
+    4. MANDATORY DOCUMENT STRUCTURE — exactly five top-level sections, each opened by an EXACT machine marker heading on its own line, in this exact order:
+        ## R1: Full Version
+        ## R2: Conclusion Version
+        ## R3: Tutorial Version
+        ## A1: บทบรรยายเนื้อหาหลักสูตร
+        ## K1: แบบจำลอง / ทดลอง
+    - **Absolute Rule:** Emit these five marker headings VERBATIM (same prefix `## R1:` / `## R2:` / `## R3:` / `## A1:` / `## K1:`). A downstream parser splits the document on them, so do not rename, reorder, translate, merge, drop, or add marker headings, and do not wrap them in bold or quotes. The text after the colon is a human label; keep it but you may localize it to the context language. Output nothing before `## R1:` and nothing after the K1 section ends.
+    - Do NOT emit a V (video) section: video content is supplied separately by the system (YouTube), not by you.
+    - Within each section you MAY use lower-level headings (### …) named naturally after the actual subject matter. Every distinct topic from the context must be covered.
+    - All five sections cover the SAME underlying topics — they are different presentations of one lesson, not different lessons. Requirements per section:
+    * **R1: Full Version** — the complete, authoritative read/write reference and the longest section. Clear textual explanations in structured Markdown (headings, bullet/numbered lists, definition lists). **Bold key terms**, give precise definitions, and present comparison data as real Markdown pipe tables (| col | col |) and hierarchical bullet lists where they clarify relationships. Must cover every key point. Do not instruct learners to 'summarize in their own words' or 'paraphrase'.
+    * **R2: Conclusion Version** — a condensed pre-exam review / cheat sheet that distills the key takeaways and core concepts of EVERY topic into highly scannable bullet points or compact summary tables. Must be complete to the end (never truncated). Introduce no material beyond what R1 covers.
+    * **R3: Tutorial Version** — a step-by-step, do-it-yourself walkthrough teaching the same concepts as a guided tutorial: numbered steps, worked examples, and short practice tasks. For any practice task where the learner must deduce the answer, include an answer key per rule 6. End with a brief "Lesson Learnt" line stating the practical takeaway.
+    * **A1: บทบรรยายเนื้อหาหลักสูตร** — a spoken-style lecture/narration that delivers the FULL original source content, written to be read aloud. Constraints:
+        (0) **Full coverage, no abridgement:** Narrate the ENTIRE source content from beginning to end in its original order — every topic, sub-point, definition, example, and number present in the context must be spoken. This is NOT a summary or highlight reel: do not condense, skip, generalize, or shorten. A1 must be at least as complete as R1 and is typically the longest spoken section; when in doubt, narrate more, not less. (Equations may be voiced in words.)
+        (1) At least 70% must be standard narrative paragraphs (NO `>` blockquote symbol) that establish context, explain theory, and elaborate concepts in a flowing, conversational lecture voice.
+        (2) You may intersperse targeted character dialogue (e.g., instructor and student). Dialogue MUST be a blockquote beginning with a short situational description, then character lines on subsequent rows, e.g.:
             > Situation: The instructor asks the class about Subject-Verb Agreement.
             > Instructor: "Why do we say 'He is happy' but 'They are happy'?"
             > Student: "I'm not entirely sure. What is the core rule behind that?"
-        (3) Keep individual dialogue lines concise (1–3 lines per turn). The total number of dialogue blocks must scale with the 'A' score in vark_style: if A >= 70, include 3–5 blocks; if A is 40–69, include 2–3 blocks; if A is 20–39, include 1–2 blocks; if A < 20, include exactly 1 block. Do not place more than 2 blockquotes consecutively.
-        (4) **Never use the `>` symbol** for headings, general text, tips, notes, generic summaries, example sentence lists, or bullet points. The `>` symbol is strictly reserved for the Situation+Dialogue format.
-    * Kinesthetic Component (K): Include a hands-on, step-by-step activity (e.g., an experiment, a simulation scenario to solve, a bug-hunting exercise, or real-data calculations) alongside an interactive practice section. **Every kinesthetic activity must conclude with a explicitly labeled "Lesson Learnt" section** that summarizes the practical takeaway or operational insight gained from completing the task.
+        (3) Keep each dialogue turn to 1–3 lines. Scale the number of dialogue blocks with the 'A' score in vark_style: A >= 70 → 3–5 blocks; A 40–69 → 2–3 blocks; A 20–39 → 1–2 blocks; A < 20 → exactly 1 block. Never place more than 2 blockquotes consecutively.
+        (4) **Never use the `>` symbol** for headings, general text, tips, notes, summaries, example lists, or bullets — it is reserved exclusively for the Situation+Dialogue format above.
+    * **K1: แบบจำลอง / ทดลอง** — a hands-on simulation/experiment: a concrete, do-able activity (an experiment, a simulation scenario to solve, a bug-hunt, or real-data calculations) with explicit step-by-step instructions and an interactive practice section. **Every activity MUST conclude with an explicitly labeled "Lesson Learnt" section** stating the real practical insight gained (not a generic platitude). Include answer keys per rule 6 for any task the learner must solve.
+
+    5. Visual & formatting absolute rules (apply across ALL sections):
+    - Use the dominant trait in vark_style to decide which presentation to make richest — but all five sections must still be fully realized; do not hollow out any section.
+    - **Never reference or simulate images in any form.** No placeholder text or descriptions of non-existent imagery/diagrams/graphics (avoid prefixes like 'Image:', 'Figure:', 'Diagram of...', 'Photo of...'). Convey visual relationships exclusively via real Markdown pipe tables (| col | col |) or hierarchical bullet lists.
+    - **Never render tabular or comparative data as ASCII art (e.g. +---+---+ box-drawing) or inside code fences (```)** — ASCII grids rely on fixed-width alignment that breaks with proportional Thai glyphs. Every comparison or data table MUST be a real Markdown pipe table.
 
     6. Exercise Formats and Answer Key Constraints:
     - **Absolute Rule: Matching exercises of any kind are strictly prohibited.** Do not create matching tables, column-matching tasks, or term-to-definition matching. Instead, utilize alternative formats such as fill-in-the-blanks, short-answers, sequence ordering/sorting, text completion, or situational scenarios.
@@ -316,7 +321,8 @@ class VARKProjector(dspy.Signature):
         'ans'
         <Insert correct answers and explanations here>
         'ans'
-    ***The question itself must hide the solution.** For fill-in-the-blank questions, use underscores (e.g., 'My glasses ____ on the table.'). For error-correction, present the problem clearly without revealing the answer in the prompt text (e.g., use 'The manager ___ busy. (Original: are)' instead of showing the corrected sentence directly in the question). Keep the correct, final versions or solutions strictly inside the 'ans' block. Never expose answers in standard body paragraphs using phrases like '**Answer:** ...'."""
+    ***The question itself must hide the solution.** For fill-in-the-blank questions, use underscores (e.g., 'My glasses ____ on the table.'). For error-correction, present the problem clearly without revealing the answer in the prompt text (e.g., use 'The manager ___ busy. (Original: are)' instead of showing the corrected sentence directly in the question). Keep the correct, final versions or solutions strictly inside the 'ans' block. Never expose answers in standard body paragraphs using phrases like '**Answer:** ...'.
+    """
     )
 
 
