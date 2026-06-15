@@ -284,11 +284,13 @@ class FeedbackRequest(BaseModel):
 # ──────────────────────────────────────────────
 
 @app.get("/")
+@app.get("/index.html")
 async def root():
     return FileResponse("public/index.html")
 
 
 @app.get("/study")
+@app.get("/study.html")
 async def study():
     return FileResponse("public/study.html")
 
