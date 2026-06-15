@@ -25,6 +25,7 @@ dependencies = [
     "requests>=2.33.1",
     "sentence-transformers>=5.4.1",
     "soundfile>=0.13.1",
+    "tabulate>=0.10.0",
     "uvicorn[standard]>=0.30.0",
     "youtube-transcript-api>=1.2.4",
 ]

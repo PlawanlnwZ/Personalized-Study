@@ -179,6 +179,13 @@ GENERATOR_MODELS: dict[str, dict] = {
         "max_tokens": 16384,
         "temperature": 0.7,
     },
+    # "Nemotron3-Ultra": {
+    #     "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+    #     "api_base": "https://openrouter.ai/api/v1",
+    #     "api_key_env": "OPENROUTER_API_KEY",
+    #     "max_tokens": 16384,
+    #     "temperature": 0.7,
+    # },
     # "Qwen3-next-instruct": {
     #     "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
     #     "api_base": "https://openrouter.ai/api/v1",
@@ -1379,6 +1386,9 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
 # ชื่อ section ที่จะโชว์ในรายงานเทียบ (target → หัวข้อ)
 TARGET_TITLES = {"vark": "Content", "quiz": "Quiz", "video": "Video"}
 
+# เกณฑ์ (criteria) ของแต่ละ target — ใช้สร้างตาราง rubric เทียบ Model × criteria
+TARGET_CRITERIA = {"vark": VARK_CRITERIA, "quiz": QUIZ_CRITERIA, "video": VIDEO_CRITERIA}
+
 
 def _alloc_eval_path(kind: str, used: set) -> str:
     """จองเลขรัน report ใหม่ (reports/{kind}_eval{n}.json) โดยกันเลขซ้ำใน batch เดียวกัน
@@ -1425,6 +1435,107 @@ def _render_comparison_md(results: dict, judge_model: str, mode: str,
             lines.append(f"{label} --> {shown}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _alloc_rubric_path(used: Optional[set] = None) -> str:
+    """จองเลขรันใหม่สำหรับไฟล์ rubric รวม (reports/reportrubrics_{n}.md)
+    กันเลขซ้ำทั้งกับไฟล์จริงและที่จองไว้ใน `used`
+    """
+    os.makedirs("reports", exist_ok=True)
+    used = used or set()
+    n = 1
+    while True:
+        p = os.path.join("reports", f"reportrubrics_{n}.md")
+        if not os.path.exists(p) and p not in used:
+            used.add(p)
+            return p
+        n += 1
+
+
+def _render_rubric_md(target_reports: dict, results: dict, judge_model: str,
+                      mode: str, model_labels: list[str]) -> str:
+    """สร้างไฟล์ rubric รวม — ตารางเทียบ Model × criteria ของทุก target ในไฟล์เดียว
+
+    target_reports[target] = list ของ (label, report_dict) เรียงตาม parser
+    แต่ละ report_dict มี criterion_avgs (ราย criterion 0–10) + mean_total
+    ในแต่ละแถว (criterion) จะ **ตัวหนา** คะแนนของ AI ที่ทำได้สูงสุด เพื่อให้เห็นว่าตัวไหนเด่น
+    """
+    lines: list[str] = []
+    lines.append("# 📊 Rubric comparison — Model × criteria")
+    lines.append("")
+    lines.append(f"- Judge: `{judge_model}`")
+    lines.append(f"- Mode: `{mode}`")
+    lines.append(f"- AI ที่เทียบ (slot): {', '.join(model_labels) or '(none)'}")
+    lines.append("")
+    lines.append("คะแนนแต่ละช่อง = ค่าเฉลี่ยรายเกณฑ์ (0–10) ข้ามทุกตัวอย่าง — "
+                 "ตัวหนา = AI ที่ทำคะแนนสูงสุดในเกณฑ์นั้น")
+    lines.append("")
+
+    for target in ("vark", "quiz", "video"):
+        mreports = target_reports.get(target) or []
+        if not mreports:
+            continue
+        labels = [label for label, _ in mreports]
+        criteria = TARGET_CRITERIA.get(target, [])
+
+        lines.append(f"## {TARGET_TITLES.get(target, target)}")
+        lines.append("")
+        lines.append("| Criterion | " + " | ".join(labels) + " |")
+        lines.append("| --- | " + " | ".join("---" for _ in labels) + " |")
+
+        for c in criteria:
+            row_vals = []
+            for _label, rep in mreports:
+                v = (rep.get("criterion_avgs") or {}).get(c)
+                row_vals.append(v if isinstance(v, (int, float)) else None)
+            best = max((v for v in row_vals if v is not None), default=None)
+            cells = []
+            for v in row_vals:
+                if v is None:
+                    cells.append("—")
+                elif best is not None and v == best:
+                    cells.append(f"**{v}**")
+                else:
+                    cells.append(f"{v}")
+            lines.append(f"| {c} | " + " | ".join(cells) + " |")
+
+        # แถวสรุป mean total ต่อ AI
+        totals = []
+        for _label, rep in mreports:
+            t = rep.get("mean_total")
+            totals.append(t if isinstance(t, (int, float)) else None)
+        best_t = max((t for t in totals if t is not None), default=None)
+        tcells = []
+        for t in totals:
+            if t is None:
+                tcells.append("—")
+            elif best_t is not None and t == best_t:
+                tcells.append(f"**{t}**")
+            else:
+                tcells.append(f"{t}")
+        lines.append("| **Mean total** | " + " | ".join(tcells) + " |")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_rubric_report(target_reports: dict, results: dict, judge_model: str,
+                         mode: str, model_labels: list[str],
+                         path: Optional[str] = None) -> Optional[str]:
+    """เขียนไฟล์ rubric รวม (reports/reportrubrics_{n}.md) — คืน path ที่เขียน หรือ None"""
+    if not any(target_reports.get(t) for t in target_reports):
+        return None
+    path = path or _alloc_rubric_path()
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        md = _render_rubric_md(target_reports, results, judge_model, mode, model_labels)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(md)
+        print(f"[report] saved rubric table {path}")
+        return path
+    except Exception as e:
+        print(f"[report] rubric write failed: {e}")
+        return None
 
 
 def evaluate_models_comparison(targets: list[str],
@@ -1486,6 +1597,9 @@ def evaluate_models_comparison(targets: list[str],
         path = _alloc_eval_path(target, used_paths)
         _write_combined_report(target, mreports, results, JUDGE_MODEL_A,
                                mode, comparison, path)
+
+    # ── ไฟล์ rubric รวม — ตารางเทียบ Model × criteria ของทุก target ในไฟล์เดียว ──
+    _write_rubric_report(target_reports, results, JUDGE_MODEL_A, mode, used_labels)
 
     print("\n" + comparison)
     return results
