@@ -11,6 +11,7 @@ streamlit_app.py — Personalized Study (Streamlit UI)
 import asyncio
 import io
 import json
+import os
 import re
 
 import dspy
@@ -32,6 +33,15 @@ from dspy_module import (
 )
 
 st.set_page_config(page_title="Personalized Study", page_icon="📚", layout="wide")
+
+# Streamlit Cloud เก็บ API key ไว้ใน st.secrets แต่ dspy_module อ่านจาก os.environ
+# → bridge ค่าจาก secrets เข้า env var (ทำงานทั้งบน Cloud และ local ที่ใช้ .env)
+try:
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str):
+            os.environ.setdefault(_k, _v)
+except Exception:
+    pass
 
 
 # ──────────────────────────────────────────────
