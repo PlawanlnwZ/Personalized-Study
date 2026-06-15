@@ -3,8 +3,8 @@
 // ข้อมูล VARK ถูกบันทึกเบื้องหลังโดยไม่แสดงใน UI
 // ============================================================
 
-// ── Backend base URL (FastAPI) — frontend dev server รันคนละ port ─
-const API_BASE = 'http://localhost:8000';
+// ── Backend base URL (FastAPI) — same-origin บน production (Render), localhost ตอน dev ─
+const API_BASE = window.location.origin;
 
 // ══════════════════════════════════════════════════════════════
 //  TTS Engine — gTTS via /tts backend endpoint

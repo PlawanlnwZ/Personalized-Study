@@ -1,13 +1,17 @@
-# ── Streamlit app runtime dependencies (Streamlit Community Cloud) ──
-# lean set — เฉพาะที่ streamlit_app.py + dspy_module.py ใช้จริงตอน runtime
-# (ไม่รวม torch/transformers/sentence-transformers/whisper เพื่อให้ build ผ่าน limit ของ Cloud)
-streamlit>=1.58.0
+# ── FastAPI app runtime deps (Render deploy of main.py) ──
+# lean set — เฉพาะที่ main.py + dspy_module.py ใช้จริงตอน runtime
+# (ไม่รวม torch/transformers/sentence-transformers/whisper เพื่อให้ build เบา/รันใน RAM จำกัดได้)
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9      # FastAPI file upload (/generate)
+jsonlines>=4.0.0             # feedback dataset (/feedback)
 dspy-ai>=2.4.0               # DSPy framework
 litellm>=1.83.0             # LLM router (openrouter / typhoon / gemini)
+google-generativeai>=0.7.0   # Gemini judge (/evaluate, optional)
 httpx>=0.27.0               # async HTTP (YouTube API)
 requests>=2.32.0
 python-dotenv>=1.0.0
 pymupdf>=1.24.0             # PDF text extraction (primary)
 pdfminer.six>=20221105      # PDF text extraction (fallback)
-gtts>=2.5.0                 # text-to-speech
+gtts>=2.5.0                 # text-to-speech (/tts)
 youtube-transcript-api>=1.2.4

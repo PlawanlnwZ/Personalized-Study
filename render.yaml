@@ -1,0 +1,23 @@
+# Render Blueprint — deploy FastAPI app (main.py + public/study.html)
+# ใช้: ไป render.com → New → Blueprint → เลือก repo นี้ (Render อ่านไฟล์นี้เอง)
+# หรือสร้าง Web Service เอง แล้วใช้ค่า build/start command ข้างล่าง
+services:
+  - type: web
+    name: personalized-study
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # ── API keys: ตั้งค่าใน Render dashboard (ห้าม commit) ──
+      - key: OPENROUTER_API_KEY   # generator default (GPTOSS) + Nemotron3-Ultra
+        sync: false
+      - key: TYPHOON_API_KEY      # ถ้าใช้โมเดล Typhoon
+        sync: false
+      - key: YOUTUBE_API_KEY      # วิดีโอจริง (optional)
+        sync: false
+      - key: GEMINI_API_KEY       # judge สำหรับ /evaluate (optional)
+        sync: false

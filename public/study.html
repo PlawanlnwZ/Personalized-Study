@@ -1500,7 +1500,7 @@ mermaid.initialize({
   mindmap: { padding: 16 },
   flowchart: { htmlLabels: true, curve: 'basis' },
 });
-const API_BASE = 'http://localhost:8000';
+const API_BASE = window.location.origin;
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
