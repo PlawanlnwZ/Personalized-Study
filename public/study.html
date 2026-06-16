@@ -1402,7 +1402,6 @@ body.col-resizing * { pointer-events: none !important; }
 
     <div class="study-tabs">
       <button class="study-tab active" onclick="switchTab('guide', this)">📖 Study Guide</button>
-      <button class="study-tab" onclick="switchTab('videos', this)">▶ Videos</button>
       <button class="study-tab" onclick="switchTab('quiz', this)">🧪 Quiz</button>
       <div class="vark-legend" id="vark-legend" style="display:none;">
         <div class="vark-legend-item"><div class="vark-dot" style="background:var(--accent-v)"></div><span>V</span></div>
@@ -1441,14 +1440,6 @@ body.col-resizing * { pointer-events: none !important; }
         </div>
       </div>
 
-      <!-- Videos tab -->
-      <div class="tab-panel" id="panel-videos">
-        <div class="empty-state" id="videos-empty">
-          <span class="es-icon">▶</span>
-          <p>เลือก PDF แล้วกด <strong>Generate</strong><br>เพื่อรับวิดีโอแนะนำ</p>
-        </div>
-        <div id="yt-grid" class="yt-grid" style="display:none;"></div>
-      </div>
 
       <!-- Quiz tab -->
       <div class="tab-panel" id="panel-quiz">
@@ -2022,6 +2013,7 @@ async function fetchAndRenderQuizTab(material, varkScores) {
     }
     listEl.innerHTML     = buildQuizTabHTML(questions);
     listEl.style.display = 'block';
+    setTimeout(() => renderMathBlocks(listEl), 0);
   } catch(e) {
     console.warn('Quiz tab fetch error:', e);
     if (skel) skel.style.display = 'none';
@@ -2390,6 +2382,7 @@ async function fetchAndFillQuiz(sections, varkScores) {
       const questions = Array.isArray(data.questions) ? data.questions.slice(0, 10) : [];
       if (questions.length === 0) { qArea.style.display = 'none'; return; }
       qArea.innerHTML = buildSectionQuizHTML(questions, i);
+      setTimeout(() => renderMathBlocks(qArea), 0);
     } catch(e) {
       console.warn(`Quiz fetch error [section ${i}]:`, e);
       qArea.style.display = 'none';
@@ -2445,6 +2438,7 @@ function answerInlineQ(qid, chosen) {
     expEl.style.borderLeftColor = isRight ? '#5cd6b0' : '#ff7c5c';
     expEl.innerHTML = (isRight ? '✅ ถูกต้อง!' : `❌ คำตอบที่ถูก: <strong>${answer}</strong>`) +
       (explanation ? ' — ' + explanation : '');
+    setTimeout(() => renderMathBlocks(expEl), 0);
   }
   if (cardEl) cardEl.style.borderColor = isRight ? 'rgba(92,214,176,0.55)' : 'rgba(255,124,92,0.45)';
 }

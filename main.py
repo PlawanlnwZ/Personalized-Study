@@ -6,6 +6,7 @@ FastAPI + DSPy + YouTube Data API
 import os
 import re
 import json
+import random
 import httpx
 import jsonlines
 from datetime import datetime
@@ -519,19 +520,26 @@ async def generate_quiz(req: QuizRequest):
     except Exception:
         parsed = []
 
+    keys = ["A", "B", "C", "D"]
     questions = []
     for q in parsed if isinstance(parsed, list) else []:
         if not isinstance(q, dict):
             continue
         opts = q.get("options") or {}
-        if not all(k in opts for k in ("A", "B", "C", "D")):
+        if not all(k in opts for k in keys):
             continue
-        if q.get("answer") not in ("A", "B", "C", "D"):
+        if q.get("answer") not in keys:
             continue
+        # Shuffle options so the correct answer isn't always A
+        correct_text = str(opts[q["answer"]])
+        values = [str(opts[k]) for k in keys]
+        random.shuffle(values)
+        new_opts = dict(zip(keys, values))
+        new_answer = next(k for k, v in new_opts.items() if v == correct_text)
         questions.append({
             "q":           str(q.get("q", "")).strip(),
-            "options":     {k: str(opts[k]) for k in ("A", "B", "C", "D")},
-            "answer":      q["answer"],
+            "options":     new_opts,
+            "answer":      new_answer,
             "vark":        q.get("vark") if q.get("vark") in ("V","A","R","K") else "R",
             "explanation": str(q.get("explanation", "")).strip(),
         })

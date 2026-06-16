@@ -78,7 +78,8 @@ npm install express
 # รัน
 node --watch server.js
 ```
-
+# uvicorn main:app --reload
+# http://localhost:8000/
 Frontend จะอยู่ที่ `http://localhost:3000`
 
 ---
