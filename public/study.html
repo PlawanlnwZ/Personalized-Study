@@ -422,9 +422,9 @@ body.col-resizing * { pointer-events: none !important; }
   display: flex;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0 6px;
-  gap: 2px;
-  min-height: 44px;
+  padding: 0 12px;
+  gap: 4px;
+  min-height: 46px;
   flex-shrink: 0;
   align-items: center;
 }
@@ -432,21 +432,27 @@ body.col-resizing * { pointer-events: none !important; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 14px;
+  padding: 0 16px;
   border: none;
   background: transparent;
   color: var(--text-dim);
   font-family: 'Sarabun', sans-serif;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.2s;
   white-space: nowrap;
-  height: 44px;
+  height: 46px;
+  letter-spacing: 0.1px;
 }
 .study-tab:hover { color: var(--text-muted); }
-.study-tab.active { color: var(--accent-v); border-bottom-color: var(--accent-v); }
+.study-tab.active {
+  color: var(--accent-v);
+  border-bottom-color: var(--accent-v);
+  background: rgba(79,109,240,0.04);
+  border-radius: 8px 8px 0 0;
+}
 
 /* Study-guide document sub-tabs (R1/R2/R3/V1/A1/K1) */
 .doc-tabs {
@@ -529,72 +535,43 @@ body.col-resizing * { pointer-events: none !important; }
 
 /* Generate bar */
 .generate-bar {
-  padding: 9px 14px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
-  gap: 7px;
+  gap: 10px;
   align-items: center;
   flex-shrink: 0;
   background: var(--surface);
 }
-.topic-input {
+.generate-bar-hint {
   flex: 1;
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-family: 'Sarabun', sans-serif;
   font-size: 12px;
-  padding: 8px 11px;
-  border-radius: 7px;
-  resize: none;
-  outline: none;
-  transition: border-color 0.2s;
-  height: 34px;
-  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.topic-input:focus { border-color: rgba(108,143,255,0.4); }
-.topic-input::placeholder { color: var(--text-dim); }
-.btn-mic {
-  height: 34px; width: 34px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 7px;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.btn-mic:hover { border-color: var(--accent-a); color: var(--accent-a); }
-.btn-mic.recording {
-  background: rgba(255,124,92,0.12);
-  border-color: var(--accent-a);
-  color: var(--accent-a);
-  animation: pulse-mic 1s ease infinite;
-}
-@keyframes pulse-mic {
-  0%,100% { box-shadow: 0 0 0 0 rgba(255,124,92,0.4); }
-  50%      { box-shadow: 0 0 0 5px rgba(255,124,92,0); }
-}
+.generate-bar-hint strong { color: var(--text-muted); font-weight: 600; }
 .btn-generate {
-  height: 34px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 18px;
+  width: auto;
+  flex-shrink: 0;
   background: linear-gradient(135deg, var(--accent-v), #8a6df0);
   border: none;
-  border-radius: 7px;
+  border-radius: 8px;
   color: var(--white);
   font-family: 'Sarabun', sans-serif;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 6px;
   white-space: nowrap;
-  flex-shrink: 0;
+  letter-spacing: 0.2px;
 }
-.btn-generate:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(108,143,255,0.3); }
-.btn-generate:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-generate:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(79,109,240,0.35); }
+.btn-generate:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 .spinner {
   width: 12px; height: 12px;
   border: 2px solid rgba(255,255,255,0.3);
@@ -914,15 +891,30 @@ body.col-resizing * { pointer-events: none !important; }
 .btn-yt-like:hover { border-color: var(--accent-k); color: var(--accent-k); background: rgba(245,200,66,0.06); }
 .btn-yt-like.liked { background: rgba(245,200,66,0.12); border-color: var(--accent-k); color: var(--accent-k); }
 
-/* Transcribe */
-.transcribe-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; margin-top: 10px; }
-.transcribe-title { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
-.transcribe-body { font-size: 12px; color: var(--text-muted); line-height: 1.7; min-height: 40px; white-space: pre-wrap; }
 
 /* Empty */
-.empty-state { text-align: center; padding: 34px 16px; color: var(--text-dim); }
-.empty-state .es-icon { font-size: 30px; margin-bottom: 9px; display: block; }
-.empty-state p { font-size: 12px; line-height: 1.7; }
+.empty-state {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.empty-state .es-icon {
+  font-size: 44px;
+  margin-bottom: 6px;
+  display: block;
+  filter: drop-shadow(0 4px 12px rgba(79,109,240,0.15));
+}
+.empty-state p {
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--text-muted);
+}
+.empty-state p strong { color: var(--accent-v); }
 
 /* Mermaid diagram container */
 .mermaid-wrap {
@@ -1070,21 +1062,127 @@ body.col-resizing * { pointer-events: none !important; }
   text-align: center; line-height: 1.4;
 }
 .quiz-diff-btn:hover { border-color: var(--border2); color: var(--text); }
-.quiz-diff-btn.active-easy   { background:rgba(92,214,176,0.12); border-color:rgba(92,214,176,0.6); color:#5cd6b0; }
-.quiz-diff-btn.active-medium { background:rgba(245,200,66,0.12);  border-color:rgba(245,200,66,0.6);  color:#f5c842; }
-.quiz-diff-btn.active-hard   { background:rgba(255,124,92,0.12); border-color:rgba(255,124,92,0.5); color:#ff7c5c; }
-.quiz-opt-btn {
-  display: block; width: 100%; text-align: left; margin-bottom: 6px;
-  padding: 9px 12px; background: #f5f7fc;
-  border: 1.5px solid var(--border); color: var(--text-muted);
-  border-radius: 8px; font-family: 'Sarabun', sans-serif; font-size: 12px;
-  cursor: pointer; transition: all 0.18s; line-height: 1.5;
+.quiz-diff-btn.active-easy   { background:rgba(92,214,176,0.12); border-color:rgba(92,214,176,0.6); color:#077a56; }
+.quiz-diff-btn.active-medium { background:rgba(245,200,66,0.12);  border-color:rgba(245,200,66,0.6);  color:#a87200; }
+.quiz-diff-btn.active-hard   { background:rgba(255,124,92,0.12); border-color:rgba(255,124,92,0.5); color:#c0422a; }
+
+/* Question card */
+.inline-q-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  transition: border-color 0.25s, box-shadow 0.25s;
+  box-shadow: 0 1px 4px rgba(21,24,42,0.05);
 }
-.quiz-opt-btn:not(:disabled):hover { border-color: rgba(108,143,255,0.5); color: var(--text); }
-.quiz-opt-btn.selected   { background:rgba(108,143,255,0.1); border-color:rgba(108,143,255,0.6); color:#fff; }
-.quiz-opt-btn.correct    { background:rgba(92,214,176,0.12); border-color:rgba(92,214,176,0.7);  color:#5cd6b0 !important; }
-.quiz-opt-btn.wrong      { background:rgba(255,124,92,0.1);  border-color:rgba(255,124,92,0.5);  color:#ff7c5c !important; }
-.quiz-opt-btn:disabled   { cursor: default; }
+.quiz-q-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: rgba(79,109,240,0.10);
+  border: 1px solid rgba(79,109,240,0.22);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-v);
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.inline-q-text {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.65;
+  margin-bottom: 14px;
+}
+.quiz-opts-list { display: flex; flex-direction: column; gap: 6px; }
+.quiz-opt-btn {
+  display: flex; align-items: flex-start; gap: 10px;
+  width: 100%; text-align: left; margin-bottom: 0;
+  padding: 10px 14px; background: var(--bg);
+  border: 1.5px solid var(--border); color: var(--text);
+  border-radius: 10px; font-family: 'Sarabun', sans-serif; font-size: 13.5px;
+  cursor: pointer; transition: all 0.18s; line-height: 1.55;
+}
+.quiz-opt-btn:not(:disabled):hover {
+  border-color: var(--accent-v);
+  background: rgba(79,109,240,0.05);
+  color: var(--text);
+}
+.quiz-opt-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px; height: 24px;
+  border-radius: 6px;
+  background: var(--border);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all 0.18s;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.quiz-opt-btn:not(:disabled):hover .quiz-opt-letter {
+  background: rgba(79,109,240,0.15);
+  color: var(--accent-v);
+}
+.quiz-opt-btn.selected {
+  background: rgba(79,109,240,0.10);
+  border-color: var(--accent-v);
+  color: var(--text);
+  font-weight: 600;
+}
+.quiz-opt-btn.selected .quiz-opt-letter {
+  background: var(--accent-v);
+  color: #fff;
+}
+.quiz-opt-btn.correct {
+  background: rgba(20,180,138,0.10);
+  border-color: rgba(20,180,138,0.7);
+  color: #065f46 !important;
+  font-weight: 600;
+}
+.quiz-opt-btn.correct .quiz-opt-letter {
+  background: #14b48a;
+  color: #fff;
+}
+.quiz-opt-btn.wrong {
+  background: rgba(255,111,77,0.08);
+  border-color: rgba(255,111,77,0.5);
+  color: #9b2c0e !important;
+}
+.quiz-opt-btn.wrong .quiz-opt-letter {
+  background: #ff6f4d;
+  color: #fff;
+}
+.quiz-opt-btn:disabled { cursor: default; }
+
+/* Explanation box */
+.quiz-exp-box {
+  display: none;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border-left: 3px solid;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+  background: var(--bg);
+  font-weight: 400;
+}
+.quiz-exp-box strong { font-weight: 700; }
+:root[data-theme="dark"] .quiz-opt-btn { background: #1a1d2c; }
+:root[data-theme="dark"] .quiz-opt-btn:not(:disabled):hover { background: #20243a; }
+:root[data-theme="dark"] .quiz-opt-btn.selected { background: rgba(79,109,240,0.18); }
+:root[data-theme="dark"] .quiz-opt-btn.correct { background: rgba(20,180,138,0.14); color: #34d399 !important; }
+:root[data-theme="dark"] .quiz-opt-btn.wrong { background: rgba(255,111,77,0.12); color: #fb7a5c !important; }
+:root[data-theme="dark"] .quiz-exp-box { background: #1a1d2c; }
+:root[data-theme="dark"] .quiz-opt-letter { background: #2a2e40; }
 
 @media (max-width: 860px) {
   :root { --left-w: 200px; }
@@ -1295,21 +1393,6 @@ body.col-resizing * { pointer-events: none !important; }
   color: var(--text-dim);
   margin-bottom: 10px;
 }
-.inline-q-card {
-  background: var(--card);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  transition: border-color 0.25s;
-}
-.inline-q-text {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.6;
-  margin-bottom: 8px;
-}
 </style>
 </head>
 <body>
@@ -1412,8 +1495,7 @@ body.col-resizing * { pointer-events: none !important; }
     </div>
 
     <div class="generate-bar">
-      <textarea id="topic-input" class="topic-input" placeholder="คำสั่งเพิ่มเติม เช่น สรุปแบบ Visual / สร้าง Flashcard…"></textarea>
-      <button class="btn-mic" id="btn-mic" title="Speech to Text" onclick="toggleMic()">🎙️</button>
+      <span class="generate-bar-hint" id="generate-bar-hint">📂 อัปโหลด PDF ทางซ้าย แล้วกด <strong>Generate</strong></span>
       <button class="btn-generate" id="btn-generate" onclick="generate()" disabled>
         <div class="spinner" id="spinner"></div>
         <span>✦ Generate</span>
@@ -1455,11 +1537,6 @@ body.col-resizing * { pointer-events: none !important; }
         <div id="quiz-list" style="display:none;"></div>
       </div>
 
-      <!-- Speech transcription panel (stays accessible) -->
-      <div class="transcribe-panel" id="transcribe-panel" style="display:none;margin:0 16px 16px;">
-        <div class="transcribe-title">🎙️ Speech-to-Text</div>
-        <div class="transcribe-body" id="transcribe-body">กด 🎙️ แล้วพูดเพื่อ transcribe</div>
-      </div>
 
     </div>
   </div>
@@ -1775,6 +1852,8 @@ function selectPdf(idx) {
   document.getElementById('nav-filename').textContent    = entry.name;
   document.getElementById('viewer-filename').textContent = entry.name;
   document.getElementById('btn-generate').disabled       = false;
+  const hint = document.getElementById('generate-bar-hint');
+  if (hint) hint.innerHTML = `📄 <strong>${entry.name}</strong> — พร้อมแล้ว กด Generate`;
   if (entry.pdfDoc) {
     pdfDoc = entry.pdfDoc;
     totalPages  = pdfDoc.numPages;
@@ -2031,18 +2110,17 @@ function buildQuizTabHTML(questions) {
     const qid = `tab-${qi}`;
     _inlineQStore[qid] = q;
     html += `
-      <div class="inline-q-card" id="iqcard-${qid}" style="margin:0 16px 10px;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:5px;">Q${qi + 1}</div>
+      <div class="inline-q-card" id="iqcard-${qid}" style="margin:0 16px 12px;">
+        <div class="quiz-q-badge">Q${qi + 1}</div>
         <div class="inline-q-text">${esc(q.q)}</div>
-        <div>
+        <div class="quiz-opts-list">
           ${['A','B','C','D'].map(k => `
             <button class="quiz-opt-btn" id="iqopt-${qid}-${k}"
               onclick="answerInlineQ('${qid}','${k}')">
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-right:8px;">${k}</span>${esc(q.options[k] || '')}
+              <span class="quiz-opt-letter">${k}</span><span>${esc(q.options[k] || '')}</span>
             </button>`).join('')}
         </div>
-        <div id="iqexp-${qid}" style="display:none;margin-top:8px;padding:8px 12px;border-radius:7px;
-          border-left:3px solid;font-size:12px;color:var(--text-muted);line-height:1.65;background:#f5f7fc;"></div>
+        <div class="quiz-exp-box" id="iqexp-${qid}"></div>
       </div>`;
   });
   return html;
@@ -2055,7 +2133,7 @@ async function generate() {
   }
   const btn     = document.getElementById('btn-generate');
   const spinner = document.getElementById('spinner');
-  const topic   = document.getElementById('topic-input').value.trim();
+  const topic   = '';
   btn.disabled = true;
   spinner.style.display = 'block';
   document.getElementById('guide-empty').style.display         = 'none';
@@ -2392,23 +2470,22 @@ async function fetchAndFillQuiz(sections, varkScores) {
 
 function buildSectionQuizHTML(questions, si) {
   let html = `<div class="section-quiz-header">🧪 Quiz หัวข้อนี้</div>`;
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   questions.forEach((q, qi) => {
     const qid = `${si}-${qi}`;
-    _inlineQStore[qid] = q; // store full object — no JSON in onclick
-    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    _inlineQStore[qid] = q;
     html += `
       <div class="inline-q-card" id="iqcard-${qid}">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:5px;">Q${qi + 1}</div>
+        <div class="quiz-q-badge">Q${qi + 1}</div>
         <div class="inline-q-text">${esc(q.q)}</div>
-        <div>
+        <div class="quiz-opts-list">
           ${['A','B','C','D'].map(k => `
             <button class="quiz-opt-btn" id="iqopt-${qid}-${k}"
               onclick="answerInlineQ('${qid}','${k}')">
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--text-dim);margin-right:8px;">${k}</span>${esc(q.options[k] || '')}
+              <span class="quiz-opt-letter">${k}</span><span>${esc(q.options[k] || '')}</span>
             </button>`).join('')}
         </div>
-        <div id="iqexp-${qid}" style="display:none;margin-top:8px;padding:8px 12px;border-radius:7px;
-          border-left:3px solid;font-size:12px;color:var(--text-muted);line-height:1.65;background:#f5f7fc;"></div>
+        <div class="quiz-exp-box" id="iqexp-${qid}"></div>
       </div>`;
   });
   return html;
@@ -2434,13 +2511,21 @@ function answerInlineQ(qid, chosen) {
   const expEl  = document.getElementById(`iqexp-${qid}`);
   const cardEl = document.getElementById(`iqcard-${qid}`);
   if (expEl) {
-    expEl.style.display       = 'block';
-    expEl.style.borderLeftColor = isRight ? '#5cd6b0' : '#ff7c5c';
-    expEl.innerHTML = (isRight ? '✅ ถูกต้อง!' : `❌ คำตอบที่ถูก: <strong>${answer}</strong>`) +
-      (explanation ? ' — ' + explanation : '');
+    expEl.style.display = 'block';
+    expEl.style.borderLeftColor = isRight ? '#14b48a' : '#ff6f4d';
+    expEl.style.background = isRight ? 'rgba(20,180,138,0.07)' : 'rgba(255,111,77,0.07)';
+    expEl.innerHTML = (isRight
+      ? '<strong style="color:#065f46">✅ ถูกต้อง!</strong>'
+      : `<strong style="color:#9b2c0e">❌ คำตอบที่ถูก: ${answer}</strong>`) +
+      (explanation ? '<span style="color:var(--text)"> — ' + explanation + '</span>' : '');
     setTimeout(() => renderMathBlocks(expEl), 0);
   }
-  if (cardEl) cardEl.style.borderColor = isRight ? 'rgba(92,214,176,0.55)' : 'rgba(255,124,92,0.45)';
+  if (cardEl) {
+    cardEl.style.borderColor = isRight ? 'rgba(20,180,138,0.5)' : 'rgba(255,111,77,0.45)';
+    cardEl.style.boxShadow = isRight
+      ? '0 2px 12px rgba(20,180,138,0.12)'
+      : '0 2px 12px rgba(255,111,77,0.10)';
+  }
 }
 
 // ─── MARKDOWN PARSER ──────────────────────────────────────────────
