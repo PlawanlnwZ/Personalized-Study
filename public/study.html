@@ -2179,10 +2179,17 @@ async function generate() {
     fd.append('topic', topic);
 
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 180_000); // 3-min hard cap
+    const GEN_TIMEOUT_MS = 180_000; // 3-min hard cap
+    const _t0 = performance.now();
+    console.log('[generate] POST /generate started…');
+    const timeoutId  = setTimeout(() => {
+      console.warn(`[generate] aborting after ${((performance.now()-_t0)/1000).toFixed(1)}s (timeout ${GEN_TIMEOUT_MS/1000}s)`);
+      controller.abort();
+    }, GEN_TIMEOUT_MS);
     let resp;
     try {
       resp = await fetch(`${API_BASE}/generate`, { method:'POST', body:fd, signal: controller.signal });
+      console.log(`[generate] response ${resp.status} in ${((performance.now()-_t0)/1000).toFixed(1)}s`);
     } finally {
       clearTimeout(timeoutId);
     }

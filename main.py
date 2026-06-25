@@ -6,6 +6,7 @@ FastAPI + DSPy + YouTube Data API
 import os
 import re
 import json
+import time
 import random
 import httpx
 from datetime import datetime
@@ -225,9 +226,35 @@ async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dic
     if not real:
         return videos
 
-    # Step 1: parallel transcript fetch + batch stats fetch
+    # Step 1: parallel transcript fetch (with an overall time budget) + batch stats.
+    #
+    # On Render, youtube-transcript-api is IP-blocked, so every uncached transcript
+    # falls through to Gemini, which can stall under rate limits. The frontend aborts
+    # /generate at 180s, so we cap the whole transcript phase: whatever finishes in
+    # time is used, the rest are judged on title/views only. Threads that didn't make
+    # the budget keep running in the background and cache their result for next time.
+    budget = float(os.environ.get("RELEVANCE_TRANSCRIPT_BUDGET", "60"))
+
+    async def _transcripts_within_budget() -> list[str]:
+        tasks = [asyncio.ensure_future(asyncio.to_thread(_fetch_transcript, v["video_id"])) for v in real]
+        t_start = time.perf_counter()
+        done, pending = await asyncio.wait(tasks, timeout=budget)
+        out = []
+        for t in tasks:
+            if t in done and not t.cancelled() and t.exception() is None:
+                out.append(t.result() or "")
+            else:
+                out.append("")  # didn't finish within budget (or errored) → no transcript
+        got = sum(1 for x in out if x)
+        print(
+            f"[timing] transcripts: {got}/{len(real)} fetched in {time.perf_counter()-t_start:.1f}s "
+            f"(budget {budget:.0f}s, {len(pending)} still running in background)",
+            flush=True,
+        )
+        return out
+
     transcripts, stats = await asyncio.gather(
-        asyncio.gather(*[asyncio.to_thread(_fetch_transcript, v["video_id"]) for v in real]),
+        _transcripts_within_budget(),
         _fetch_video_stats([v["video_id"] for v in real]),
     )
 
@@ -242,7 +269,9 @@ async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dic
     )
 
     # Step 3: single Typhoon call
+    _t_rel = time.perf_counter()
     raw_indices, raw_vark = await asyncio.to_thread(_run_relevance_module, topic[:1000], lines)
+    print(f"[timing] relevance_llm: {time.perf_counter()-_t_rel:.1f}s", flush=True)
 
     # Step 4: parse indices (max 10) + vark map
     try:
@@ -417,9 +446,17 @@ async def generate(
     if vark_module is None:
         raise HTTPException(status_code=503, detail="AI module not initialized")
 
+    _t_req = time.perf_counter()
+    def _lap(label: str, since: float) -> float:
+        now = time.perf_counter()
+        print(f"[timing] {label}: {now - since:.1f}s (total {now - _t_req:.1f}s)", flush=True)
+        return now
+
     # 1. Extract text from PDF
+    _t = time.perf_counter()
     pdf_bytes = await pdf.read()
     context   = await extract_pdf_text(pdf_bytes)
+    _t = _lap("pdf_extract", _t)
 
     if topic:
         context = f"{context}\n\n[คำสั่งเพิ่มเติม: {topic}]"
@@ -429,6 +466,7 @@ async def generate(
         prediction = vark_module(context=context, vark_style=vark_style)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {e}")
+    _t = _lap("vark_generate", _t)
 
     learning_material = prediction.learning_material or ""
 
@@ -440,6 +478,7 @@ async def generate(
             youtube_queries_raw = q_pred.youtube_queries or "[]"
         except Exception as e:
             print(f"[VideoQueryModule] error: {e}")
+    _t = _lap("query_generate", _t)
 
     # 3. Parse YouTube queries (robust — handles markdown fences, trailing commas, CoT text)
     try:
@@ -458,8 +497,10 @@ async def generate(
 
     # 4. Fetch YouTube videos and filter by transcript relevance
     videos = await search_youtube(yt_queries, max_per_query=3)
+    _t = _lap("youtube_search", _t)
     topic_hint = topic.strip() or context[:150].strip()
     videos = await filter_videos_by_relevance(videos, topic_hint)
+    _t = _lap("relevance_filter", _t)
     print(f"[DEBUG] videos after relevance filter: {len(videos)}")
 
     # 5. Build session record

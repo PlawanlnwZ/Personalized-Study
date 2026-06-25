@@ -172,6 +172,11 @@ _GEMINI_CLIP_SECONDS = int(os.environ.get("GEMINI_TRANSCRIBE_SECONDS", "120"))
 _GEMINI_TRANSCRIBE_MODEL = os.environ.get("GEMINI_TRANSCRIBE_MODEL", "gemini-2.5-flash")
 # Retries when the free-tier per-minute request cap returns 429 (window resets each minute).
 _GEMINI_MAX_RETRIES = int(os.environ.get("GEMINI_TRANSCRIBE_RETRIES", "2"))
+# Per-attempt backoff (seconds) base when rate-limited. The RPM window is ~60s, so long
+# sleeps stack up and blow the /generate request past the frontend's 180s abort. Keep this
+# small at runtime so a rate-limited video is dropped quickly (the transcript budget in
+# filter_videos_by_relevance then judges it on title/views). Eval can raise it via env.
+_GEMINI_BACKOFF_BASE = float(os.environ.get("GEMINI_TRANSCRIBE_BACKOFF", "6"))
 
 
 def _fetch_gemini_transcript(video_id: str, max_chars: int = 2000) -> str:
@@ -222,11 +227,15 @@ def _fetch_gemini_transcript(video_id: str, max_chars: int = 2000) -> str:
             except Exception as e:
                 msg = str(e)
                 is_rate_limited = "429" in msg or "RESOURCE_EXHAUSTED" in msg
-                if is_rate_limited and attempt < _GEMINI_MAX_RETRIES:
-                    # RPM window resets each minute; wait it out (jitter de-syncs workers)
-                    time.sleep(20 * (attempt + 1) + random.uniform(0, 8))
+                if is_rate_limited and attempt < _GEMINI_MAX_RETRIES and _GEMINI_BACKOFF_BASE > 0:
+                    # RPM window resets each minute; short jittered backoff keeps latency
+                    # bounded so a rate-limited video is dropped fast instead of stalling
+                    # /generate. Raise GEMINI_TRANSCRIBE_BACKOFF for eval if you want
+                    # full retries; set it to 0 to fail immediately on 429.
+                    time.sleep(_GEMINI_BACKOFF_BASE * (attempt + 1) + random.uniform(0, 3))
                     continue
-                print(f"[gemini-transcript] {video_id}: {msg[:140]}")
+                tag = "rate-limited (429)" if is_rate_limited else msg[:140]
+                print(f"[gemini-transcript] {video_id}: {tag}", flush=True)
                 return ""
     except Exception as e:
         print(f"[gemini-transcript] {video_id}: setup error: {str(e)[:120]}")
