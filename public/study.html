@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Personalized Study — VARK</title>
+<title>Personalized Learning</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script>
   // Apply saved theme before paint to avoid flash
@@ -64,6 +64,11 @@
 }
 :root[data-theme="dark"] .skeleton,
 :root[data-theme="dark"] .empty-state { background: #1a1d2c; }
+:root[data-theme="dark"] .mermaid-wrap { background: #1a1d2c; }
+:root[data-theme="dark"] .yt-subtopic-chip { background: #1e2235; border-color: var(--border2); }
+:root[data-theme="dark"] .guide-content code { background: #1e2235; }
+:root[data-theme="dark"] .guide-content pre { background: #1a1d2c; border-color: var(--border); }
+:root[data-theme="dark"] .mermaid-loading { color: var(--text-dim); }
 
 /* ── Theme toggle button (topnav) ── */
 .theme-toggle-btn {
@@ -84,6 +89,19 @@
 }
 .theme-toggle-btn:hover { color: var(--accent-v); border-color: var(--accent-v); }
 
+/* Keyboard focus indicators */
+.study-tab:focus-visible,
+.doc-tab:focus-visible,
+.btn-generate:focus-visible,
+.page-btn:focus-visible,
+.back-btn:focus-visible,
+.quiz-opt-btn:focus-visible,
+.quiz-diff-btn:focus-visible,
+.btn-add-pdf:focus-visible {
+  outline: 2px solid var(--accent-v);
+  outline-offset: 2px;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -102,7 +120,7 @@ body {
   min-height: 50px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(21,24,42,0.04);
+  box-shadow: 0 1px 4px rgba(21,24,42,0.07), 0 2px 8px rgba(21,24,42,0.04);
   display: flex;
   align-items: center;
   padding: 0 14px;
@@ -171,6 +189,7 @@ body {
   flex-direction: column;
   background: var(--surface);
   border-right: 1px solid var(--border);
+  box-shadow: 2px 0 8px rgba(21,24,42,0.05);
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
@@ -275,8 +294,9 @@ body.col-resizing * { pointer-events: none !important; }
 }
 .pdf-tab-item:hover { background: #eef1fa; }
 .pdf-tab-item.active {
-  background: rgba(108,143,255,0.1);
-  border-color: rgba(108,143,255,0.3);
+  background: rgba(79,109,240,0.10);
+  border-color: rgba(79,109,240,0.35);
+  box-shadow: 0 1px 4px rgba(79,109,240,0.10);
 }
 .pdf-tab-icon { font-size: 14px; flex-shrink: 0; opacity: 0.65; }
 .pdf-tab-item.active .pdf-tab-icon { opacity: 1; }
@@ -441,7 +461,7 @@ body.col-resizing * { pointer-events: none !important; }
   font-weight: 600;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
   white-space: nowrap;
   height: 46px;
   letter-spacing: 0.1px;
@@ -450,8 +470,9 @@ body.col-resizing * { pointer-events: none !important; }
 .study-tab.active {
   color: var(--accent-v);
   border-bottom-color: var(--accent-v);
-  background: rgba(79,109,240,0.04);
+  background: rgba(79,109,240,0.06);
   border-radius: 8px 8px 0 0;
+  font-weight: 700;
 }
 
 /* Study-guide document sub-tabs (R1/R2/R3/V1/A1/K1) */
@@ -542,6 +563,7 @@ body.col-resizing * { pointer-events: none !important; }
   align-items: center;
   flex-shrink: 0;
   background: var(--surface);
+  box-shadow: 0 2px 6px rgba(21,24,42,0.04);
 }
 .generate-bar-hint {
   flex: 1;
@@ -627,7 +649,8 @@ body.col-resizing * { pointer-events: none !important; }
 }
 .guide-content > *:first-child { margin-top: 0; }
 .guide-content > *:last-child { margin-bottom: 0; }
-.guide-content h1,.guide-content h2,.guide-content h3,.guide-content h4 {
+.guide-content h1,.guide-content h2,.guide-content h3,.guide-content h4,
+.guide-content h5,.guide-content h6 {
   color: var(--text); font-weight: 700; line-height: 1.35;
 }
 .guide-content h1 { font-size: 1.25rem; margin: 22px 0 10px; }
@@ -655,9 +678,15 @@ body.col-resizing * { pointer-events: none !important; }
   border-radius: 0 6px 6px 0;
   letter-spacing: 0.2px;
 }
+/* h5 / h6 — deeper sub-headings the model occasionally emits. Kept smaller and
+   plainer than h4 so the hierarchy stays readable. */
+.guide-content h5 { font-size: 0.9rem;  color: var(--text);      margin: 18px 0 7px; }
+.guide-content h6 { font-size: 0.85rem; color: var(--text-muted); margin: 16px 0 6px; }
 .guide-content h2 + p,
 .guide-content h3 + p,
-.guide-content h4 + p { margin-top: 0; }
+.guide-content h4 + p,
+.guide-content h5 + p,
+.guide-content h6 + p { margin-top: 0; }
 .guide-content p { margin: 0 0 12px; }
 .guide-content ul,.guide-content ol {
   padding-left: 22px;
@@ -756,23 +785,6 @@ body.col-resizing * { pointer-events: none !important; }
   background: rgba(230,169,31,0.04);
 }
 .guide-content .answer-body > *:last-child { margin-bottom: 6px; }
-
-/* Like bar */
-.like-bar {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 16px; padding: 11px 14px;
-  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-}
-.like-bar-label { font-size: 12px; color: var(--text-muted); flex: 1; }
-.btn-like {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 13px; background: transparent;
-  border: 1.5px solid var(--border); color: var(--text-muted);
-  border-radius: 7px; font-size: 12px; font-family: 'Sarabun', sans-serif;
-  font-weight: 600; cursor: pointer; transition: all 0.2s;
-}
-.btn-like:hover { border-color: var(--accent-k); color: var(--accent-k); background: rgba(245,200,66,0.06); }
-.btn-like.liked { background: rgba(245,200,66,0.12); border-color: var(--accent-k); color: var(--accent-k); }
 
 /* Summary */
 .summary-wrap { display: flex; flex-direction: column; gap: 11px; }
@@ -880,16 +892,6 @@ body.col-resizing * { pointer-events: none !important; }
 .yt-subtopic-skel:nth-child(1) { width: 52px; }
 .yt-subtopic-skel:nth-child(2) { width: 68px; animation-delay: 0.15s; }
 .yt-subtopic-skel:nth-child(3) { width: 40px; animation-delay: 0.3s; }
-.btn-yt-like {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 4px 8px; background: transparent;
-  border: 1px solid var(--border); color: var(--text-dim);
-  border-radius: 5px; font-size: 10px; font-family: 'Sarabun', sans-serif;
-  font-weight: 600; cursor: pointer; transition: all 0.18s;
-  white-space: nowrap; flex-shrink: 0; align-self: center;
-}
-.btn-yt-like:hover { border-color: var(--accent-k); color: var(--accent-k); background: rgba(245,200,66,0.06); }
-.btn-yt-like.liked { background: rgba(245,200,66,0.12); border-color: var(--accent-k); color: var(--accent-k); }
 
 
 /* Empty */
@@ -901,7 +903,11 @@ body.col-resizing * { pointer-events: none !important; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  margin: 16px;
+  border: 1px dashed var(--border2);
 }
 .empty-state .es-icon {
   font-size: 44px;
@@ -1072,9 +1078,9 @@ body.col-resizing * { pointer-events: none !important; }
   border: 1.5px solid var(--border);
   border-radius: 14px;
   padding: 18px 20px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   transition: border-color 0.25s, box-shadow 0.25s;
-  box-shadow: 0 1px 4px rgba(21,24,42,0.05);
+  box-shadow: 0 2px 8px rgba(21,24,42,0.06);
 }
 .quiz-q-badge {
   display: inline-flex;
@@ -1161,6 +1167,22 @@ body.col-resizing * { pointer-events: none !important; }
   color: #fff;
 }
 .quiz-opt-btn:disabled { cursor: default; }
+
+/* Adaptive-loop review button */
+.quiz-review-btn {
+  width: 100%;
+  padding: 11px 16px;
+  border: 1px solid var(--accent-v);
+  border-radius: 10px;
+  background: var(--accent-v);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.quiz-review-btn:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+.quiz-review-btn:disabled { opacity: .45; cursor: default; }
 
 /* Explanation box */
 .quiz-exp-box {
@@ -1516,10 +1538,6 @@ body.col-resizing * { pointer-events: none !important; }
           <div class="skeleton wide"></div><div class="skeleton med"></div>
         </div>
         <div id="guide-vark-sections" style="display:none;"></div>
-        <div class="like-bar" id="like-bar" style="display:none;margin:0 16px 16px;">
-          <span class="like-bar-label">📊 เนื้อหานี้ตรงกับสไตล์คุณไหม?</span>
-          <button class="btn-like" id="btn-like" onclick="toggleLike()">👍 ถูกใจ</button>
-        </div>
       </div>
 
 
@@ -1591,9 +1609,6 @@ sessionStorage.removeItem('__vark_current__');   // one-shot transfer key only
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) location.reload();
 });
-let feedbackSessions = [];
-let currentSession   = null;
-let likedVideoIds    = new Set();
 
 const VARK_CFG = {
   V: { label:'Visual',      color:'#6c8fff', emoji:'👁️',  icon:'📊' },
@@ -2073,6 +2088,11 @@ async function fetchAndRenderQuizTab(material, varkScores) {
   listEl.style.display = 'none';
   listEl.innerHTML     = '';
 
+  // adaptive loop: fresh quiz → reset captured results, remember inputs for /adapt
+  _quizResults  = [];
+  _quizMaterial = String(material || '');
+  _quizVark     = varkScores;
+
   try {
     const res = await fetch(`${API_BASE}/quiz`, {
       method: 'POST',
@@ -2123,6 +2143,14 @@ function buildQuizTabHTML(questions) {
         <div class="quiz-exp-box" id="iqexp-${qid}"></div>
       </div>`;
   });
+  // adaptive loop: review button + remediation panel (enabled once questions are answered)
+  html += `
+    <div id="quiz-review-wrap" style="margin:8px 16px 20px;">
+      <button id="btn-review-missed" class="quiz-review-btn" onclick="reviewMissed()" disabled>
+        📌 ทบทวนจุดที่พลาด
+      </button>
+      <div id="quiz-review-panel" style="display:none;margin-top:12px;"></div>
+    </div>`;
   return html;
 }
 
@@ -2139,7 +2167,6 @@ async function generate() {
   document.getElementById('guide-empty').style.display         = 'none';
   document.getElementById('guide-skeleton').style.display      = 'block';
   document.getElementById('guide-vark-sections').style.display = 'none';
-  document.getElementById('like-bar').style.display            = 'none';
 
   const varkScores = varkData
     ? { ...varkData.vark_scores, dominant: varkData.dominant_style }
@@ -2151,20 +2178,19 @@ async function generate() {
     fd.append('vark_style', JSON.stringify(varkScores));
     fd.append('topic', topic);
 
-    const resp = await fetch(`${API_BASE}/generate`, { method:'POST', body:fd });
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 180_000); // 3-min hard cap
+    let resp;
+    try {
+      resp = await fetch(`${API_BASE}/generate`, { method:'POST', body:fd, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || 'API error');
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `API error ${resp.status}`);
     }
     const data = await resp.json();
-    currentSession = {
-      session_id:        data.session_id,
-      vark_style:        data.vark_style,
-      context_snippet:   data.context_snippet,
-      learning_material: data.learning_material,
-      youtube_queries:   JSON.stringify(data.youtube_queries),
-      liked: false,
-    };
 
     document.getElementById('guide-skeleton').style.display = 'none';
     btn.disabled = false;
@@ -2191,7 +2217,10 @@ async function generate() {
 
   } catch(err) {
     console.error(err);
-    showToast(`❌ ${err.message || 'เกิดข้อผิดพลาด'}`);
+    const msg = err.name === 'AbortError'
+      ? 'หมดเวลา (3 นาที) — เซิร์ฟเวอร์ใช้เวลานานเกินไป กรุณาลองใหม่'
+      : (err.message || 'เกิดข้อผิดพลาด');
+    showToast(`❌ ${msg}`);
     document.getElementById('guide-empty').style.display = '';
     document.getElementById('guide-skeleton').style.display = 'none';
     btn.disabled = false;
@@ -2360,7 +2389,6 @@ function renderUnifiedGuide(md, videos, varkScores) {
 
   switchDocTab(firstKey || 'R1');
 
-  document.getElementById('like-bar').style.display = 'flex';
   setTimeout(() => renderMermaidBlocks(el), 0);
   setTimeout(() => renderMathBlocks(el), 0);
 }
@@ -2499,6 +2527,18 @@ function answerInlineQ(qid, chosen) {
   const answer      = q.answer || '';
   const explanation = q.explanation || '';
   const isRight = chosen === answer;
+
+  // adaptive loop: record answers from the QUIZ TAB only (qid `tab-*`) so the review
+  // re-teaches against the tab's material — section quizzes use a different material.
+  if (String(qid).startsWith('tab-')) {
+    _quizResults.push({
+      concept:    q.concept || '',
+      chosenText: (q.options && q.options[chosen]) || '',
+      isRight,
+    });
+    updateReviewButton();
+  }
+
   ['A','B','C','D'].forEach(k => {
     const btn = document.getElementById(`iqopt-${qid}-${k}`);
     if (!btn) return;
@@ -2747,11 +2787,18 @@ function parseMD(md) {
     // Image markdown ถูกตัดออกจากระบบแล้ว — ทิ้งบรรทัด ![...] ทุกกรณี ไม่ render
     if (/^!\[/.test(raw)) { i++; continue; }
 
-    // Headings
-    if (/^#### /.test(raw)) { out.push('<h4>' + inlineMD(raw.slice(5)) + '</h4>'); i++; continue; }
-    if (/^### /.test(raw)) { out.push('<h3>' + inlineMD(raw.slice(4)) + '</h3>'); i++; continue; }
-    if (/^## /.test(raw))  { out.push('<h2>' + inlineMD(raw.slice(3)) + '</h2>'); i++; continue; }
-    if (/^# /.test(raw))   { out.push('<h1>' + inlineMD(raw.slice(2)) + '</h1>'); i++; continue; }
+    // Headings (h1–h6). Handle ANY 1–6 leading # generically. The model
+    // sometimes emits ##### / ###### — if those fall through to the paragraph
+    // path below, the collector's leading-# stop pattern rejects the line
+    // without advancing i, which infinite-loops the parser (frozen page).
+    {
+      var hm = raw.match(/^(#{1,6}) +(.*)$/);
+      if (hm) {
+        var lvl = Math.min(hm[1].length, 6);
+        out.push('<h' + lvl + '>' + inlineMD(hm[2]) + '</h' + lvl + '>');
+        i++; continue;
+      }
+    }
 
     // Promote a bold-only line to <h4>. The model frequently emits section
     // titles like "**กิจกรรมที่ 1: ...**" on their own line instead of using
@@ -2780,12 +2827,37 @@ function parseMD(md) {
       continue;
     }
 
-    // Ordered list
+    // Ordered list — collect items together with any continuation lines that
+    // sit under them, and keep the list going across blank lines that merely
+    // separate items. Each item keeps its explicit number via <li value=N>, so
+    // a list whose items are broken up by continuation text still counts
+    // 1, 2, 3… instead of each item becoming its own <ol> that resets to 1.
     if (/^\d+\.\s/.test(raw)) {
       var olitems = [];
-      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
-        olitems.push('<li>' + inlineMD(lines[i].replace(/^\d+\.\s+/, '')) + '</li>');
+      while (i < lines.length) {
+        var om = lines[i].match(/^(\d+)\.\s+(.*)$/);
+        if (!om) break;
+        var onum   = om[1];
+        var oparts = [om[2]];
         i++;
+        while (i < lines.length) {
+          var nx = lines[i];
+          if (nx.trim() === '') {
+            // Peek past blank line(s): continue the list only if the next
+            // non-blank line is another numbered item; otherwise the list ends.
+            var k = i;
+            while (k < lines.length && lines[k].trim() === '') k++;
+            if (k < lines.length && /^\d+\.\s/.test(lines[k])) { i = k; break; }
+            break;
+          }
+          // A new block of any kind ends the current item.
+          if (/^\d+\.\s/.test(nx) || /^[-*] /.test(nx) || /^#{1,6} /.test(nx) ||
+              /^\|/.test(nx) || /^```/.test(nx.replace(/^[ \t]+/, '')) ||
+              /^(?:\\\[|\$\$)$/.test(nx.trim())) break;
+          oparts.push(nx.trim()); // continuation line for this item
+          i++;
+        }
+        olitems.push('<li value="' + onum + '">' + inlineMD(oparts.join(' ')) + '</li>');
       }
       out.push('<ol>' + olitems.join('') + '</ol>');
       continue;
@@ -2803,11 +2875,25 @@ function parseMD(md) {
            !/^[-*] /.test(lines[i]) &&
            !/^\d+\.\s/.test(lines[i]) &&
            !/^---/.test(lines[i].trim()) &&
+           // Stop at a standalone display-math opener (\[ or $$) so the dedicated
+           // math-block path above can keep it in ONE text node. Otherwise the
+           // <br>-joined paragraph splits \[ and \] across text nodes and KaTeX
+           // auto-render can't pair them — they show as raw text.
+           !/^(?:\\\[|\$\$)$/.test(lines[i].replace(/[​﻿]/g, '').replace(/ /g, ' ').trim()) &&
            !/^['‘’"]?\s*ans\s*['‘’"]?[\s.,;:]*$/i.test(lines[i].trim())) {
       para.push(inlineMD(lines[i]));
       i++;
     }
-    if (para.length) out.push('<p>' + para.join('<br>') + '</p>');
+    if (para.length) {
+      out.push('<p>' + para.join('<br>') + '</p>');
+    } else {
+      // Safety net: the current line matched a paragraph stop-pattern but was
+      // not consumed by any block above (e.g. a malformed "#heading" with no
+      // space). Emit it as a plain paragraph and advance, so i ALWAYS moves
+      // forward — this guarantees parseMD can never infinite-loop.
+      out.push('<p>' + inlineMD(lines[i]) + '</p>');
+      i++;
+    }
   }
 
   return out.join('\n');
@@ -2816,6 +2902,56 @@ function parseMD(md) {
 // ─── QUIZ STATE ────────────────────────────────────────────────
 const VARK_Q_COLOR  = { V:'#6c8fff', A:'#ff7c5c', R:'#5cd6b0', K:'#f5c842' };
 const _inlineQStore = {}; // qid → question object (avoids JSON-in-onclick)
+
+// ─── ADAPTIVE LOOP: capture graded quiz answers → /adapt re-teaches what was missed ───
+let _quizResults  = [];   // [{concept, chosenText, isRight}] from the quiz tab
+let _quizMaterial = '';   // material the current quiz tab was built from
+let _quizVark     = null; // vark profile for /adapt
+
+function updateReviewButton() {
+  const btn = document.getElementById('btn-review-missed');
+  if (!btn) return;
+  const wrong = _quizResults.filter(r => !r.isRight).length;
+  btn.disabled = _quizResults.length === 0;
+  btn.textContent = wrong > 0 ? `📌 ทบทวนจุดที่พลาด (${wrong})` : '📌 ทบทวนจุดที่พลาด';
+}
+
+async function reviewMissed() {
+  const btn   = document.getElementById('btn-review-missed');
+  const panel = document.getElementById('quiz-review-panel');
+  if (!panel) return;
+  const wrong = _quizResults.filter(r => !r.isRight);
+  if (wrong.length === 0) { showToast('🎉 ตอบถูกทุกข้อ! ไม่มีจุดที่ต้องทบทวน'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังสร้างบททบทวน...'; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="padding:16px;color:var(--text-dim);">กำลังวิเคราะห์จุดที่พลาด…</div>';
+  try {
+    const res = await fetch(`${API_BASE}/adapt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        learning_material: String(_quizMaterial || '').slice(0, 8000),
+        vark_style:        _quizVark || {},
+        results:           _quizResults,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.mastered || !data.remediation) {
+      panel.innerHTML = '<div style="padding:16px;">🎉 ไม่มีจุดที่ต้องทบทวน</div>';
+    } else {
+      panel.innerHTML = '<h3 style="margin:0 0 10px;">📌 ทบทวนจุดที่พลาด</h3>'
+                      + '<div class="guide-content">' + parseMD(data.remediation) + '</div>';
+      setTimeout(() => renderMathBlocks(panel), 0);
+    }
+  } catch (e) {
+    console.warn('adapt error:', e);
+    panel.innerHTML = '<div style="padding:16px;color:var(--accent-a);">⚠️ สร้างบททบทวนไม่สำเร็จ</div>';
+  } finally {
+    if (btn) { btn.disabled = false; updateReviewButton(); }
+  }
+}
 
 // ─── VIDEOS (legacy stub — videos now embedded per section) ───
 function renderVideos() {}
@@ -2869,90 +3005,6 @@ function renderVideos() {}
   document.addEventListener('touchend',  () => end());
 })();
 
-// ─── LIKE (guide) ─────────────────────────────────────────────
-function toggleLike() {
-  if (!currentSession) return;
-  currentSession.liked = !currentSession.liked;
-  const btn = document.getElementById('btn-like');
-  btn.classList.toggle('liked', currentSession.liked);
-  btn.textContent = currentSession.liked ? '👍 ถูกใจแล้ว!' : '👍 ถูกใจ';
-  if (currentSession.liked) {
-    feedbackSessions = feedbackSessions.filter(s => s.session_id !== currentSession.session_id);
-    feedbackSessions.unshift({ ...currentSession });
-    if (feedbackSessions.length > 5) feedbackSessions = feedbackSessions.slice(0,5);
-    sendFeedback();
-    showToast('💾 บันทึกแล้ว ขอบคุณ!');
-  }
-}
-
-// ─── LIKE (per video) ─────────────────────────────────────────
-function toggleVideoLike(btn, videoId) {
-  if (likedVideoIds.has(videoId)) {
-    likedVideoIds.delete(videoId);
-    btn.classList.remove('liked');
-    btn.innerHTML = '👍 Like';
-    showToast('ยกเลิก Like วิดีโอ');
-  } else {
-    likedVideoIds.add(videoId);
-    btn.classList.add('liked');
-    btn.innerHTML = '👍 Liked!';
-    showToast('💛 Like วิดีโอแล้ว!');
-    if (currentSession) {
-      fetch(`${API_BASE}/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: [{
-          ...currentSession,
-          session_id: currentSession.session_id + '_vid_' + videoId,
-          liked: true,
-        }]}),
-      }).catch(e => console.warn(e));
-    }
-  }
-}
-
-async function sendFeedback() {
-  try {
-    await fetch(`${API_BASE}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: feedbackSessions }),
-    });
-  } catch(e) { console.warn(e); }
-}
-
-// ─── SPEECH-TO-TEXT ───────────────────────────────────────────
-let recognition = null;
-let isRecording  = false;
-
-function toggleMic() { isRecording ? stopMic() : startMic(); }
-
-function startMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { showToast('⚠️ Browser ไม่รองรับ Speech Recognition'); return; }
-  recognition = new SR();
-  recognition.lang = 'th-TH'; recognition.continuous = true; recognition.interimResults = true;
-  recognition.onresult = (e) => {
-    let t = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
-    document.getElementById('topic-input').value = t;
-    document.getElementById('transcribe-body').textContent = t;
-    document.getElementById('transcribe-panel').style.display = 'block';
-  };
-  recognition.onerror = (e) => { showToast(`🎙️ Error: ${e.error}`); stopMic(); };
-  recognition.onend   = () => stopMic();
-  recognition.start();
-  isRecording = true;
-  document.getElementById('btn-mic').classList.add('recording');
-}
-
-function stopMic() {
-  if (recognition) { recognition.stop(); recognition = null; }
-  isRecording = false;
-  document.getElementById('btn-mic').classList.remove('recording');
-}
-
-// ─── TOAST ────────────────────────────────────────────────────
 // ─── MERMAID RENDER ───────────────────────────────────────────
 // เรียกหลัง parseMD ฉีด HTML เข้า DOM เสร็จ
 // ── Sanitize mermaid source: wrap Thai/special-char labels in quotes ──────────

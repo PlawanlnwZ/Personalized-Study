@@ -16,7 +16,6 @@ dependencies = [
     "numpy>=1.26.4",
     "ollama>=0.6.2",
     "openai>=2.32.0",
-    "openai-whisper>=20231117",
     "pdfminer-six>=20221105",
     "pymupdf>=1.27.2.2",
     "python-dotenv>=1.2.2",

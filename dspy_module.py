@@ -11,7 +11,10 @@ import requests
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # override=True so .env wins over stale shell env vars (e.g. an old exhausted
+    # YOUTUBE_API_KEY lingering in the PowerShell session). On Render there is no .env
+    # file, so this is a no-op and dashboard env vars are used as normal.
+    load_dotenv(override=True)
 except ImportError:
     pass  # ไม่มี dotenv ก็ยังใช้ env var ปกติได้
 
@@ -133,23 +136,145 @@ async def _fetch_video_stats(video_ids: list[str]) -> dict:
         return {}
 
 
-def _fetch_transcript(video_id: str, max_chars: int = 2000) -> str:
-    """Fetch YouTube auto-captions via youtube-transcript-api. Returns '' on any failure.
+_TRANSCRIPT_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".transcript_cache.json")
+_transcript_cache: dict = {}
+_transcript_cache_lock = __import__("threading").Lock()  # parallel fetches write the cache
 
-    รองรับทั้ง API ใหม่ (>=1.0: instance .fetch() → FetchedTranscript ของ snippet objects)
-    และ API เก่า (<1.0: classmethod .get_transcript() → list[dict])
+def _load_transcript_cache() -> None:
+    global _transcript_cache
+    with _transcript_cache_lock:
+        if _transcript_cache or not os.path.exists(_TRANSCRIPT_CACHE_FILE):
+            return
+        try:
+            with open(_TRANSCRIPT_CACHE_FILE, encoding="utf-8") as f:
+                _transcript_cache = json.load(f)
+            print(f"[transcript_cache] loaded {len(_transcript_cache)} entries")
+        except Exception:
+            pass
+
+def _cache_transcript(video_id: str, text: str) -> None:
+    """Store one transcript and persist the cache (thread-safe snapshot write)."""
+    with _transcript_cache_lock:
+        _transcript_cache[video_id] = text
+        try:
+            with open(_TRANSCRIPT_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(dict(_transcript_cache), f, ensure_ascii=False)
+        except Exception as e:
+            print(f"[transcript_cache] save error: {e}")
+
+
+# Cap how much of each video Gemini ingests. Passing a YouTube URL tokenizes the WHOLE
+# video by default; videoMetadata start/end offset limits ingestion → controls cost/quota.
+# First N seconds is plenty to judge relevance + VARK. Tune via GEMINI_TRANSCRIBE_SECONDS.
+_GEMINI_CLIP_SECONDS = int(os.environ.get("GEMINI_TRANSCRIBE_SECONDS", "120"))
+# gemini-2.5-flash handles Thai audio well and accepts video input. Do NOT default to the
+# judge's gemini-3.1-flash-lite — lite models often reject video/YouTube input.
+_GEMINI_TRANSCRIBE_MODEL = os.environ.get("GEMINI_TRANSCRIBE_MODEL", "gemini-2.5-flash")
+# Retries when the free-tier per-minute request cap returns 429 (window resets each minute).
+_GEMINI_MAX_RETRIES = int(os.environ.get("GEMINI_TRANSCRIBE_RETRIES", "2"))
+
+
+def _fetch_gemini_transcript(video_id: str, max_chars: int = 2000) -> str:
+    """Transcribe a YouTube video by passing its URL straight to Gemini. Returns '' on failure.
+
+    No audio download (so no datacenter-IP 403) and no torch — Gemini fetches the video
+    server-side, so this works on Render too. Thread-safe (plain HTTP), so callers may run
+    it in parallel.
+
+    Free-tier Gemini has a per-minute request cap; parallel callers burst past it and get
+    429s. We retry with jittered backoff (the window resets each minute) so a burst doesn't
+    lose videos. If still 429 after retries, return '' uncached → next run retries that video.
     """
+    key = _gemini_api_key()
+    if not key:
+        return ""
+    # Outer guard: ANY failure (SDK import, client/types construction, SDK drift, request)
+    # must return '' so a single bad video can't crash the parallel pool.map in the eval.
+    try:
+        import time
+        import random
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        parts = [
+            types.Part(
+                file_data=types.FileData(file_uri=url),
+                video_metadata=types.VideoMetadata(
+                    start_offset="0s", end_offset=f"{_GEMINI_CLIP_SECONDS}s"
+                ),
+            ),
+            types.Part(text=(
+                "Transcribe the spoken audio of this educational video (Thai or English). "
+                "Output ONLY the transcript text — no commentary, no timestamps."
+            )),
+        ]
+        for attempt in range(_GEMINI_MAX_RETRIES + 1):
+            try:
+                resp = client.models.generate_content(
+                    model=_GEMINI_TRANSCRIBE_MODEL,
+                    contents=types.Content(parts=parts),
+                )
+                text = (resp.text or "").strip()
+                print(f"[gemini-transcript] {video_id} ({len(text)} chars)")
+                return text[:max_chars]
+            except Exception as e:
+                msg = str(e)
+                is_rate_limited = "429" in msg or "RESOURCE_EXHAUSTED" in msg
+                if is_rate_limited and attempt < _GEMINI_MAX_RETRIES:
+                    # RPM window resets each minute; wait it out (jitter de-syncs workers)
+                    time.sleep(20 * (attempt + 1) + random.uniform(0, 8))
+                    continue
+                print(f"[gemini-transcript] {video_id}: {msg[:140]}")
+                return ""
+    except Exception as e:
+        print(f"[gemini-transcript] {video_id}: setup error: {str(e)[:120]}")
+        return ""
+
+
+def _fetch_transcript(video_id: str, max_chars: int = 2000) -> str:
+    """Fetch transcript: cache → youtube-transcript-api → Gemini. Returns '' on all failures.
+
+    youtube-transcript-api is free/fast but blocked from shared datacenter IPs (Render, AWS,
+    GCP); set YOUTUBE_PROXY_URL=http://user:pass@host:port (Webshare, Oxylabs, Bright Data) or
+    HTTPS_PROXY to route through a residential proxy. When it fails or returns nothing, Gemini
+    transcribes the video server-side from its URL (no download, no 403, works on Render).
+    """
+    _load_transcript_cache()
+    if video_id in _transcript_cache:
+        return _transcript_cache[video_id][:max_chars]
+
     langs = ["th", "en", "en-US", "en-GB"]
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        # ── API ใหม่ (>=1.0) ──
-        if hasattr(YouTubeTranscriptApi, "get_transcript"):
-            snippets = YouTubeTranscriptApi.get_transcript(video_id, languages=langs)
-            return " ".join(s["text"] for s in snippets)[:max_chars]
-        fetched = YouTubeTranscriptApi().fetch(video_id, languages=langs)
-        return " ".join(s.text for s in fetched)[:max_chars]
+
+        proxy_url = (
+            os.environ.get("YOUTUBE_PROXY_URL")
+            or os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+        )
+        proxy_cfg = None
+        if proxy_url:
+            try:
+                from youtube_transcript_api.proxies import GenericProxyConfig
+                proxy_cfg = GenericProxyConfig(http_url=proxy_url, https_url=proxy_url)
+            except Exception as e:
+                print(f"[transcript] proxy config error (continuing without proxy): {e}")
+
+        api = YouTubeTranscriptApi(proxy_config=proxy_cfg)
+        fetched = api.fetch(video_id, languages=langs)
+        text = " ".join(s.text for s in fetched)
+        if text:
+            _cache_transcript(video_id, text)
+            return text[:max_chars]
     except Exception:
-        return ""
+        pass
+
+    text = _fetch_gemini_transcript(video_id, max_chars)
+    if text:
+        _cache_transcript(video_id, text)
+    return text
 
 
 # ──────────────────────────────────────────────
@@ -221,6 +346,7 @@ def build_generator_lm(label: str) -> dspy.LM:
         max_tokens=cfg.get("max_tokens", 16384),
         temperature=cfg.get("temperature", 0.7),
         cache=False,
+        timeout=120,
     )
 
 
@@ -244,6 +370,7 @@ def configure_lm(api_key: Optional[str] = None):
         max_tokens=cfg["max_tokens"],
         temperature=cfg["temperature"],
         cache=False,
+        timeout=120,
     )
     dspy.settings.configure(lm=lm)
     print(f"[runtime] generator model = {DEFAULT_GENERATOR} ({cfg['model']})")
@@ -279,11 +406,12 @@ class VARKProjector(dspy.Signature):
     - Use the same language as the context/PDF. If the context is in English, the entire output must be written in English. Maintain technical terms or source examples in their original language as required by the context.
 
     2. Completeness and Length (Highest Priority):
-    - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information.
+    - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information. Prefer rich, detailed explanations with examples over terse bullet points.
     - The length of the generated output must scale according to the size of the provided context:
-    * Short context (<500 words) -> Output must be >= 800 words.
-    * Medium context (500–2,000 words) -> Output must be >= 1,500 words.
-    * Long context (>2,000 words) -> Output must be >= 60% of the context length or >= 2,500 words (whichever is greater).
+    * Short context (<500 words) -> Output must be >= 1,200 words.
+    * Medium context (500–2,000 words) -> Output must be >= 2,000 words.
+    * Long context (>2,000 words) -> Output must be >= 70% of the context length or >= 3,000 words (whichever is greater).
+    - **Per-section balance:** Each of the five sections (R1, R2, R3, A1, K1) must be substantial in its own right — none may be a short stub. In particular R2, R3, and K1 must be developed in full (multiple paragraphs / multiple worked examples / multiple steps), so that no single tab renders nearly empty. R1 and A1 remain the longest, but every section must stand on its own as a complete, well-developed resource.
 
     3. Mathematical Formulations:
     - Use \\( ... \\) for inline equations and \\[ ... \\] for display equations.
@@ -302,7 +430,7 @@ class VARKProjector(dspy.Signature):
     - All five sections cover the SAME underlying topics — they are different presentations of one lesson, not different lessons. Requirements per section:
     * **R1: Full Version** — the complete, authoritative read/write reference and the longest section. Clear textual explanations in structured Markdown (headings, bullet/numbered lists, definition lists). **Bold key terms**, give precise definitions, and present comparison data as real Markdown pipe tables (| col | col |) and hierarchical bullet lists where they clarify relationships. Must cover every key point. Do not instruct learners to 'summarize in their own words' or 'paraphrase'.
     * **R2: Conclusion Version** — a condensed pre-exam review / cheat sheet that distills the key takeaways and core concepts of EVERY topic into highly scannable bullet points or compact summary tables. Must be complete to the end (never truncated). Introduce no material beyond what R1 covers.
-    * **R3: Tutorial Version** — a step-by-step, do-it-yourself walkthrough teaching the same concepts as a guided tutorial: numbered steps, worked examples, and short practice tasks. For any practice task where the learner must deduce the answer, include an answer key per rule 6. End with a brief "Lesson Learnt" line stating the practical takeaway.
+    * **R3: Tutorial Version** — a thorough, step-by-step, do-it-yourself walkthrough that teaches the same concepts as a guided tutorial. For EACH major concept or procedure in the context, include: (a) a short explanation of the method/approach and WHY each step is done, (b) at least one fully worked example that shows every step and the final result inline, and (c) where it helps understanding, a second worked scenario solved completely. Use numbered steps and show the arithmetic/derivation explicitly. **This section must be substantial — several hundred words — not a bare list of formulas.** **Absolute Rule for R3: because every solution is already shown inline as a worked example, DO NOT include ANY answer-key / hidden-answer block here — no 'ans' delimiters, no "ดูเฉลย", no spoiler block anywhere in R3.** (Answer keys belong only in K1, per rule 6, where the learner must deduce the answer themselves.) End with a brief "Lesson Learnt" line stating the practical takeaway.
     * **A1: บทบรรยายเนื้อหาหลักสูตร** — a spoken-style lecture/narration that delivers the FULL original source content, written to be read aloud. Constraints:
         (0) **Full coverage, no abridgement:** Narrate the ENTIRE source content from beginning to end in its original order — every topic, sub-point, definition, example, and number present in the context must be spoken. This is NOT a summary or highlight reel: do not condense, skip, generalize, or shorten. A1 must be at least as complete as R1 and is typically the longest spoken section; when in doubt, narrate more, not less. (Equations may be voiced in words.)
         (1) At least 70% must be standard narrative paragraphs (NO `>` blockquote symbol) that establish context, explain theory, and elaborate concepts in a flowing, conversational lecture voice.
@@ -322,7 +450,7 @@ class VARKProjector(dspy.Signature):
     6. Exercise Formats and Answer Key Constraints:
     - **Absolute Rule: Matching exercises of any kind are strictly prohibited.** Do not create matching tables, column-matching tasks, or term-to-definition matching. Instead, utilize alternative formats such as fill-in-the-blanks, short-answers, sequence ordering/sorting, text completion, or situational scenarios.
     - **Strict Answer Key Formatting:** 
-    * Provide an answer block only when the solution is not already explicitly visible in the preceding text (e.g., do not add an answer block to an explanatory table that already contains full examples). However, for any dedicated exercise, quiz, scenario, or interactive task where the student must deduce the answer, **you must provide an answer key immediately following the task without exception.**
+    * **Answer blocks ('ans') are allowed ONLY in the K1 section** — never in R1, R2, R3, or A1. In K1, for any interactive task where the student must deduce the answer themselves, you must provide an answer key immediately following the task. Do NOT add an answer block when the solution is already explicitly visible in the preceding text (e.g., a worked example or an explanatory table that already shows the full result). R3 always shows its solutions inline and therefore never contains an answer block.
     * The answer block must be strictly delimited by the word 'ans' enclosed in single quotes. The delimiter row must stand completely alone on its own line, contain no other text, and start at column 0 (left-aligned without indentation or markdown code fences).
     * The precise format must look exactly like this:
         'ans'
@@ -404,7 +532,7 @@ class QuizGenerator(dspy.Signature):
         desc=r"""An MCQ quiz as a JSON array — generate exactly `count` questions (max 10).
     **Output format (strict):** Respond with a JSON array ONLY. No markdown fences (```), no leading/trailing text or explanation, no trailing comma. It must be directly parseable by JSON.parse.
     **Format it to be readable (pretty-print):** indent 2 spaces, each object / each key on its own line — do not cram everything onto one line (it must still be 100% valid JSON).
-    Each item is an object containing every key: {"q":"<question>","options":{"A":"..","B":"..","C":"..","D":".."},"answer":"A|B|C|D","vark":"V|A|R|K","explanation":"1–2 sentences"}
+    Each item is an object containing every key: {"q":"<question>","options":{"A":"..","B":"..","C":"..","D":".."},"answer":"A|B|C|D","vark":"V|A|R|K","concept":"<short topic label>","explanation":"1–2 sentences"}
     Example of the desired format (blank line + indentation like this):
     [
       {
@@ -417,6 +545,7 @@ class QuizGenerator(dspy.Signature):
         },
         "answer": "B",
         "vark": "R",
+        "concept": "...",
         "explanation": "..."
       }
     ]
@@ -442,8 +571,9 @@ class QuizGenerator(dspy.Signature):
     8) `explanation` must explain reasoning consistent with the answer, concise, 1–2 sentences (why that option is correct and/or why the others are wrong).
 
     **Format & language:**
-    9) The JSON must be valid and every item must include all keys (q, options{A,B,C,D}, answer, vark, explanation).
+    9) The JSON must be valid and every item must include all keys (q, options{A,B,C,D}, answer, vark, concept, explanation).
     10) Each item's `vark` tag must match the style the question actually uses, and **the language must match `learning_material`** (Thai content → questions/options/explanations entirely in Thai; English content → English; except technical terms / code, which keep their original language).
+    12) `concept` is a SHORT label (2–6 words, in the content's language) naming the single specific topic/idea that question tests — e.g. "กฎข้อ 2 ของนิวตัน (F=ma)", "Present Simple: เติม -s/-es", "การหาจุดดุลยภาพ". Questions on the same idea must share the SAME concept string verbatim so weak areas can be grouped. It names the idea, not the modality.
     11) **Mathematical formulas (KaTeX):** if a question/option/explanation contains an equation, write inline with `\\( ... \\)` and display with `\\[ ... \\]` — because the formula lives inside a JSON string, you **must always escape the backslash as two backslashes** (write `\\(`, `\\)`, `\\[`, `\\]`, `\\frac`, `\\times`, `\\approx`, etc.) so the JSON stays valid, and after JSON.parse a single backslash remains for KaTeX to render. **The entire equation must be in one string / on one line** — do not break to a new line in the middle of a formula, e.g. `"explanation": "Derived from \\( z = \\frac{v}{c} \\approx 0.0216 \\), therefore we conclude..."`."""
     )
 
@@ -462,6 +592,60 @@ class QuizModule(dspy.Module):
             learning_material=learning_material,
             vark_style=vark_style,
             count=count,
+        )
+
+
+# REMEDIATION PROMPT — adaptive loop: re-teach only what the learner missed on the quiz
+class RemediationProjector(dspy.Signature):
+    """Re-teach ONLY the concepts a learner answered incorrectly on the quiz, approaching
+    each from a DIFFERENT angle than the original lesson and directly correcting the specific
+    misconception their wrong choice reveals. This is short, targeted review — not a re-run
+    of the whole lesson."""
+
+    learning_material: str = dspy.InputField(
+        desc="The original lesson the learner already studied (Markdown)."
+    )
+    vark_style: str = dspy.InputField(
+        desc='JSON VARK profile, e.g. {"V":40,"A":20,"R":30,"K":10,"dominant":"V"}'
+    )
+    weak_spots: str = dspy.InputField(
+        desc='JSON array of the questions the learner got wrong: '
+             '[{"concept":"<topic label>","chosenText":"<the wrong option they picked>"}]. '
+             'Multiple entries may share the same concept.'
+    )
+    remediation: str = dspy.OutputField(
+        desc=r"""A focused review module (Markdown) that re-teaches ONLY the weak concepts.
+
+    Rules:
+    1) Language: match `learning_material` exactly (Thai content → ALL prose, headings, table cells, and labels in Thai; English → English). Keep only technical terms/code/equations/variable names in their original form. Do NOT translate or re-title concepts into another language.
+    2) Group by concept: emit ONE `### <concept>` subsection per DISTINCT concept in weak_spots (dedupe — if several wrong answers share a concept, cover it once, addressing each distinct misconception inside it). **The heading after `### ` MUST be the `concept` string copied VERBATIM from weak_spots** — do not rename, translate, expand, or invent a new title for it. Output nothing before the first `### ` heading.
+    3) Inside each subsection, in this order:
+       - A short re-explanation that takes a DIFFERENT approach than a plain restatement — use a fresh analogy, a contrasting example, or a step-by-step derivation the original may not have emphasized. Do NOT just repeat the original wording.
+       - A line explicitly named **ทำไมตัวเลือกที่เลือกถึงผิด** (or "Why that answer is wrong" in English) that targets the misconception implied by `chosenText` — name the wrong idea and correct it directly.
+       - One concrete worked example OR a memory hook the learner can hold onto.
+    4) Keep it concise — this is remediation, not a new lesson. Aim for ~80–200 words per concept. Cover every distinct concept; do not introduce unrelated topics.
+    5) Use the dominant trait in `vark_style` to choose HOW to re-explain (V → a Markdown pipe table or hierarchy; A → a short spoken-style walkthrough; R → precise definitions/lists; K → a hands-on mini scenario), but never reference or describe images, and render any comparative data as real Markdown pipe tables (never ASCII art or code fences).
+    6) Mathematical formulas (KaTeX): inline `\\( ... \\)`, display `\\[ ... \\]`, each equation fully on one line.
+    """
+    )
+
+
+class RemediationModule(dspy.Module):
+    """Adaptive-loop module — re-teaches only the concepts missed on the quiz.
+
+    Reuses the existing QuizModule downstream for fresh 'check' questions, so this module
+    has a single job: produce targeted re-teach material from the learner's wrong answers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(RemediationProjector)
+
+    def forward(self, learning_material: str, vark_style: str,
+                weak_spots: str) -> dspy.Prediction:
+        return self.generate(
+            learning_material=(learning_material or "")[:4000],
+            vark_style=vark_style,
+            weak_spots=weak_spots or "[]",
         )
 
 
@@ -1282,7 +1466,9 @@ def _build_video_lines(videos: list[dict]) -> str:
     if not real:
         return ""
     vids = [v["video_id"] for v in real]
-    transcripts = [_fetch_transcript(vid) for vid in vids]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        transcripts = list(pool.map(_fetch_transcript, vids))
     try:
         stats = asyncio.run(_fetch_video_stats(vids))
     except Exception as e:
@@ -1851,6 +2037,15 @@ def load_relevance_module(
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
+
+    # Whisper transcripts can contain arbitrary Unicode (e.g. hallucinated CJK/Tamil on
+    # non-speech audio). The default Windows console is cp874 (Thai) and would crash on a
+    # print() of such chars — harden stdout/stderr so a stray char can't kill a long eval run.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
     parser = argparse.ArgumentParser(
         description="DSPy pipeline: enrich → evaluate (vark / quiz / video). "

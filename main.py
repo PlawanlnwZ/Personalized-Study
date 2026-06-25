@@ -8,7 +8,6 @@ import re
 import json
 import random
 import httpx
-import jsonlines
 from datetime import datetime
 from typing import Optional
 
@@ -25,6 +24,7 @@ from dspy_module import (
     load_relevance_module,
     VARKModule,
     QuizModule,
+    RemediationModule,
     VideoQueryModule,
     VideoRelevanceModule,
     search_youtube,
@@ -57,16 +57,18 @@ vark_module: Optional[VARKModule] = None
 quiz_module: Optional[QuizModule] = None
 query_module: Optional[VideoQueryModule] = None
 relevance_module: Optional[VideoRelevanceModule] = None
+remediation_module: Optional[RemediationModule] = None
 
 @app.on_event("startup")
 async def startup_event():
-    global vark_module, quiz_module, query_module, relevance_module
+    global vark_module, quiz_module, query_module, relevance_module, remediation_module
     try:
         configure_lm()  # reads TYPHOON_API_KEY from env
-        vark_module      = load_module("vark_model.json")
-        quiz_module      = load_quiz_module("quiz_model.json")
-        query_module     = VideoQueryModule()
-        relevance_module = load_relevance_module()
+        vark_module       = load_module("vark_model.json")
+        quiz_module       = load_quiz_module("quiz_model.json")
+        query_module      = VideoQueryModule()
+        relevance_module  = load_relevance_module()
+        remediation_module = RemediationModule()  # zero-shot, no demos
         print("✅ DSPy modules ready")
     except Exception as e:
         print(f"⚠️  DSPy startup error: {e}")
@@ -267,19 +269,6 @@ async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dic
     return (passed + links) if passed else real[:10] + links
 
 
-class FeedbackItem(BaseModel):
-    session_id: str
-    vark_style: dict
-    context_snippet: str        # first 500 chars of context
-    learning_material: str
-    youtube_queries: str
-    liked: bool                 # True = user liked this output
-
-
-class FeedbackRequest(BaseModel):
-    items: list[FeedbackItem]   # Top-5 liked items from frontend
-
-
 # ──────────────────────────────────────────────
 # Routes
 # ──────────────────────────────────────────────
@@ -473,7 +462,7 @@ async def generate(
     videos = await filter_videos_by_relevance(videos, topic_hint)
     print(f"[DEBUG] videos after relevance filter: {len(videos)}")
 
-    # 5. Build session record (for feedback system)
+    # 5. Build session record
     vark_data = {}
     try:
         vark_data = json.loads(vark_style)
@@ -541,57 +530,61 @@ async def generate_quiz(req: QuizRequest):
             "options":     new_opts,
             "answer":      new_answer,
             "vark":        q.get("vark") if q.get("vark") in ("V","A","R","K") else "R",
+            "concept":     str(q.get("concept", "")).strip(),
             "explanation": str(q.get("explanation", "")).strip(),
         })
 
     return {"questions": questions}
 
 
-@app.post("/feedback")
-async def feedback(req: FeedbackRequest):
-    """
-    รับ Top-5 liked items จาก Frontend
-    บันทึกเป็น JSONL เพื่อใช้เป็น Dataset สำหรับ re-compile ในอนาคต
-    """
-    dataset_path = "feedback_dataset.jsonl"
-    liked_items  = [item for item in req.items if item.liked]
+class AdaptRequest(BaseModel):
+    learning_material: str
+    vark_style: dict
+    results: list[dict]   # [{concept, chosenText, isRight, ...}] from the graded quiz
 
-    if not liked_items:
-        return {"saved": 0, "message": "No liked items to save"}
 
-    with jsonlines.open(dataset_path, mode="a") as writer:
-        for item in liked_items:
-            writer.write({
-                "timestamp":         datetime.utcnow().isoformat(),
-                "session_id":        item.session_id,
-                "vark_style":        item.vark_style,
-                "context_snippet":   item.context_snippet,
-                "learning_material": item.learning_material,
-                "youtube_queries":   item.youtube_queries,
-                "liked":             item.liked,
-            })
+@app.post("/adapt")
+async def adapt(req: AdaptRequest):
+    """
+    Adaptive loop: from the graded quiz `results`, re-teach ONLY the concepts the learner
+    missed. Returns targeted remediation Markdown (empty + mastered=True if nothing wrong).
+    Frontend can then call /quiz on the remediation to generate fresh 'check' questions.
+    """
+    if remediation_module is None:
+        raise HTTPException(status_code=503, detail="Remediation module not initialized")
+
+    # Keep only wrong answers that carry a concept; dedupe by (concept, chosenText).
+    seen, weak = set(), []
+    for r in req.results or []:
+        if not isinstance(r, dict) or r.get("isRight"):
+            continue
+        concept = str(r.get("concept", "")).strip()
+        if not concept:
+            continue
+        chosen_text = str(r.get("chosenText", "")).strip()
+        key = (concept, chosen_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        weak.append({"concept": concept, "chosenText": chosen_text})
+
+    if not weak:
+        return {"remediation": "", "mastered": True, "weak_concepts": []}
+
+    try:
+        pred = remediation_module(
+            learning_material=req.learning_material[:4000],
+            vark_style=json.dumps(req.vark_style, ensure_ascii=False),
+            weak_spots=json.dumps(weak, ensure_ascii=False),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Remediation error: {e}")
 
     return {
-        "saved":   len(liked_items),
-        "message": f"Saved {len(liked_items)} items to {dataset_path}",
+        "remediation": pred.remediation or "",
+        "mastered": False,
+        "weak_concepts": sorted({w["concept"] for w in weak}),
     }
-
-
-@app.get("/feedback/dataset")
-async def get_feedback_dataset():
-    """
-    ดู feedback dataset (สำหรับ admin/developer)
-    """
-    dataset_path = "feedback_dataset.jsonl"
-    if not os.path.exists(dataset_path):
-        return {"records": [], "count": 0}
-
-    records = []
-    with jsonlines.open(dataset_path) as reader:
-        for obj in reader:
-            records.append(obj)
-
-    return {"records": records, "count": len(records)}
 
 
 @app.post("/evaluate")
