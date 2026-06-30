@@ -20,7 +20,7 @@
   /* ── Text ── */
   --text:       #131628;
   --text-muted: #4f566b;
-  --text-dim:   #8a92a9;
+  --text-dim:   #6b7185;   /* AA-compliant (~4.7:1 on white); still de-emphasised vs muted */
   --white:      #ffffff;
 
   /* ── Shadows (tuned for slightly more depth) ── */
@@ -1059,13 +1059,15 @@ body::before {
   color: #5cd6b0;
   font-weight: 700;
   z-index: 999;
-  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  opacity: 0;
+  visibility: hidden;
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease, visibility 0.3s;
   white-space: nowrap;
   pointer-events: none;
   box-shadow: var(--shadow-lg);
 }
 
-.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
 
 /* ══════════════════════════════════════
    TTS Bar
@@ -1201,7 +1203,7 @@ body::before {
   --border-strong: #363c54;
   --text:          #e8eaf4;
   --text-muted:    #8f97b3;
-  --text-dim:      #5c647e;
+  --text-dim:      #8a90a6;   /* AA-compliant on dark surfaces (~5.1-6.0:1) */
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.45), 0 3px 8px rgba(0,0,0,0.40);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35);
   --shadow-lg: 0 16px 40px rgba(0,0,0,0.65), 0 4px 12px rgba(0,0,0,0.4);

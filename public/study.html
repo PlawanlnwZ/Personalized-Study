@@ -26,7 +26,7 @@
   --accent-k:  #e6a91f;
   --text:      #15182a;
   --text-muted:#5d6478;
-  --text-dim:  #9aa0b5;
+  --text-dim:  #6b7185;   /* AA-compliant (~4.7:1 on white); still de-emphasised vs muted */
   --white:     #ffffff;
   --shadow-sm: 0 1px 2px rgba(21,24,42,0.04), 0 2px 6px rgba(21,24,42,0.06);
   --shadow-md: 0 4px 12px rgba(21,24,42,0.08), 0 2px 4px rgba(21,24,42,0.04);
@@ -37,11 +37,13 @@
   --left-w:    255px;
   --radius:    10px;
   --radius-lg: 16px;
+  --pdf-stage: #e4e8f1;   /* PDF viewer "stage" backdrop (light) */
 }
 
 /* ── Dark theme tokens ── */
 :root[data-theme="dark"] {
   --bg:        #0e1016;
+  --pdf-stage: #0e1016;
   --surface:   #171a25;
   --card:      #1d2030;
   --card2:     #171a25;
@@ -49,7 +51,7 @@
   --border2:   #3a3f54;
   --text:      #e8eaf2;
   --text-muted:#9aa0b5;
-  --text-dim:  #6d7286;
+  --text-dim:  #8a90a6;   /* AA-compliant on dark surfaces (~5.1-6.0:1) */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.35);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.3);
 }
@@ -344,7 +346,7 @@ body.col-resizing * { pointer-events: none !important; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #0e1016;
+  background: var(--pdf-stage);
 }
 .viewer-toolbar {
   height: 36px;
@@ -420,7 +422,7 @@ body.col-resizing * { pointer-events: none !important; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--text-muted);
   gap: 10px;
   padding: 20px;
   text-align: center;
@@ -594,6 +596,29 @@ body.col-resizing * { pointer-events: none !important; }
 }
 .btn-generate:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(79,109,240,0.35); }
 .btn-generate:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+/* Mobile-only upload button (desktop uses the sidebar "+ Add") */
+.btn-add-pdf-mobile {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  flex-shrink: 0;
+  background: rgba(108,143,255,0.12);
+  border: 1px solid rgba(108,143,255,0.32);
+  color: var(--accent-v);
+  font-family: 'Sarabun', sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+.btn-add-pdf-mobile:hover { background: rgba(108,143,255,0.2); }
+.btn-add-pdf-mobile input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 .spinner {
   width: 12px; height: 12px;
   border: 2px solid rgba(255,255,255,0.3);
@@ -710,7 +735,10 @@ body.col-resizing * { pointer-events: none !important; }
   font-size: 12px; line-height: 1.55;
 }
 .guide-content pre code { background: none; padding: 0; font-size: inherit; color: var(--text); }
-.guide-content table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 12px; }
+/* display:block + overflow-x lets wide tables scroll inside the column
+   instead of stretching the whole page on narrow screens. */
+.guide-content table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 14px; font-size: 12px; }
+.guide-content img { max-width: 100%; height: auto; }
 .guide-content th,.guide-content td { padding: 8px 11px; border: 1px solid var(--border); text-align: left; }
 .guide-content th { background: #f0f3fa; color: var(--text); font-weight: 700; }
 .guide-content tr:nth-child(even) { background: #fafbfd; }
@@ -1054,10 +1082,11 @@ body.col-resizing * { pointer-events: none !important; }
   background: var(--card); border: 1px solid var(--border);
   border-radius: 100px; padding: 8px 18px;
   font-size: 12px; color: var(--accent-r); font-weight: 600;
-  z-index: 9999; transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  z-index: 9999; opacity: 0; visibility: hidden;
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease, visibility 0.3s;
   white-space: nowrap; pointer-events: none;
 }
-.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
 
 /* Quiz */
 .quiz-diff-btn {
@@ -1211,6 +1240,13 @@ body.col-resizing * { pointer-events: none !important; }
 }
 @media (max-width: 580px) {
   .left-col { display: none; }
+  /* Sidebar (and its "+ Add") is hidden on phones — surface upload in the bar.
+     Stack: hint spans the row, then upload + generate share the row below as
+     two equal, comfortably tall (40px) tap targets. */
+  .btn-add-pdf-mobile { display: inline-flex; }
+  .generate-bar { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+  .generate-bar-hint { flex: 1 1 100%; white-space: normal; margin-bottom: 1px; }
+  .btn-add-pdf-mobile, .btn-generate { flex: 1; height: 40px; font-size: 13px; }
 }
 
 /* ── Phase 1.5: Compact step strip + VARKy narrator ── */
@@ -1344,6 +1380,20 @@ body.col-resizing * { pointer-events: none !important; }
   .step-chev-mini:first-child { padding-left: 12px; }
   .narrator-mini { font-size: 11px; gap: 7px; }
   .narrator-mini .n-avatar { font-size: 15px; }
+  /* The 4 VARK score chips (Visual 25% …) are nowrap and force the nav to
+     ~683px, overflowing the whole page on phones. The dominant style is
+     already shown in the narrator + the V/A/R/K legend, so hide them here. */
+  #nav-vark-wrap { display: none; }
+}
+@media (max-width: 640px) {
+  /* Collapse step chevrons to number-only badges. The Thai labels forced a
+     ~424px min-width on the strip, clipping the narrator/close/TTS buttons
+     off-screen on phones. Numbers preserve the 1-2-3 progress affordance. */
+  .step-chev-mini > span:not([class]) { display: none; }
+  .step-chev-mini { padding: 5px 15px 5px 17px; }
+  .step-chev-mini:first-child { padding-left: 10px; }
+  .step-chev-mini:last-child { padding-right: 13px; }
+  .step-strip { gap: 9px; padding: 7px 10px; }
 }
 
 /* ── Integrated section: embedded video + quiz per topic ── */
@@ -1476,7 +1526,7 @@ body.col-resizing * { pointer-events: none !important; }
     <div class="pdf-tabs-header">
       <span class="pdf-tabs-title">PDF Files</span>
       <label class="btn-add-pdf">
-        <input type="file" accept=".pdf" multiple onchange="handleSidebarFiles(this.files)">
+        <input type="file" accept=".pdf" multiple onchange="handleSidebarFiles(this.files)" aria-label="อัปโหลดไฟล์ PDF">
         + Add
       </label>
     </div>
@@ -1517,7 +1567,11 @@ body.col-resizing * { pointer-events: none !important; }
     </div>
 
     <div class="generate-bar">
-      <span class="generate-bar-hint" id="generate-bar-hint">📂 อัปโหลด PDF ทางซ้าย แล้วกด <strong>Generate</strong></span>
+      <span class="generate-bar-hint" id="generate-bar-hint">📂 อัปโหลด PDF แล้วกด <strong>Generate</strong></span>
+      <label class="btn-add-pdf-mobile" title="เพิ่มไฟล์ PDF">
+        <input type="file" accept=".pdf" multiple onchange="handleSidebarFiles(this.files)" aria-label="อัปโหลดไฟล์ PDF">
+        <span>+ เพิ่ม PDF</span>
+      </label>
       <button class="btn-generate" id="btn-generate" onclick="generate()" disabled>
         <div class="spinner" id="spinner"></div>
         <span>✦ Generate</span>
