@@ -26,6 +26,7 @@ dependencies = [
     "soundfile>=0.13.1",
     "streamlit>=1.58.0",
     "tabulate>=0.10.0",
+    "torchcodec>=0.14.0",
     "uvicorn[standard]>=0.30.0",
     "youtube-transcript-api>=1.2.4",
 ]

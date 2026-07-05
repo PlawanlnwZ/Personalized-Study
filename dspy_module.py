@@ -394,6 +394,92 @@ def _gen_context(gen_lm):
     return dspy.context(lm=gen_lm) if gen_lm is not None else contextlib.nullcontext()
 
 
+def _gen_error_note(e: Exception) -> tuple[bool, str]:
+    """ตรวจว่า exception จาก generator (ตอน generate เนื้อหา/quiz/query/relevance) เป็น
+    rate-limit จาก provider ไหม (เช่น OpenRouter free-tier 429, Gemini RESOURCE_EXHAUSTED)
+    คืน (is_rate_limited, note ภาษาไทยสำหรับใส่ใน feedback/report)
+
+    ใช้ตรงจุดที่เรียก generator module ในลูป eval — เพื่อ "ข้าม" ตัวอย่างที่พังแทนที่จะ
+    ปล่อยให้ exception หลุดขึ้นไปทำให้ทั้งสคริปต์ crash (เสีย progress ของ model/ตัวอย่างอื่น)
+    """
+    msg = str(e)
+    is_rl = (
+        "429" in msg
+        or "RateLimitError" in type(e).__name__
+        or "rate-limited" in msg.lower()
+        or "RESOURCE_EXHAUSTED" in msg
+    )
+    if is_rl:
+        return True, (
+            f"⚠️ ติด Rate Limit (429) จาก provider — ข้ามตัวอย่างนี้ไป (ไม่กระทบตัวอย่าง/โมเดลอื่น)\n\n"
+            f"รายละเอียด: {msg[:300]}"
+        )
+    return False, f"❌ Generator error: {type(e).__name__}: {msg[:300]}"
+
+import threading
+
+_retry_after_store: dict[int, int] = {}  # thread_id → retry_after seconds
+_retry_after_lock = threading.Lock()
+
+_original_send = httpx.Client.send
+
+def _patched_send(self, request, **kwargs):
+    response = _original_send(self, request, **kwargs)
+    if response.status_code in (429, 503):
+        val = response.headers.get("Retry-After")
+        if val and val.isdigit():
+            with _retry_after_lock:
+                _retry_after_store[threading.get_ident()] = int(val)
+    return response
+
+httpx.Client.send = _patched_send
+
+
+def _pop_retry_after() -> int | None:
+    """Pop the Retry-After value captured for this thread, or None if not set."""
+    with _retry_after_lock:
+        return _retry_after_store.pop(threading.get_ident(), None)
+
+
+def _call_with_retry(fn, *args, max_retries=3, base_backoff=10, **kwargs):
+    for attempt in range(max_retries + 1):
+        try:
+            return fn(*args, **kwargs), None
+        except Exception as e:
+            msg = str(e)
+            is_retryable = (
+                "429" in msg
+                or "503" in msg
+                or "RateLimitError" in type(e).__name__
+                or "ServiceUnavailableError" in type(e).__name__
+                or "AdapterParseError" in type(e).__name__
+                or "rate-limited" in msg.lower()
+                or "service unavailable" in msg.lower()
+                or "overloaded" in msg.lower()
+                or "RESOURCE_EXHAUSTED" in msg
+            )
+            if not is_retryable:
+                _, note = _gen_error_note(e)
+                return None, note
+
+            if attempt >= max_retries:
+                _, note = _gen_error_note(e)
+                return None, note
+
+            # Check if the patch captured a Retry-After header
+            retry_after = _pop_retry_after()
+            if retry_after is not None:
+                wait = retry_after + random.uniform(0, 3)
+                tag = "429" if "429" in msg else "503"
+                print(f"[retry] {tag} hit — Retry-After header: {retry_after}s, "
+                      f"waiting {wait:.1f}s (attempt {attempt+1}/{max_retries})")
+            else:
+                wait = base_backoff * (2 ** attempt) + random.uniform(0, 5)
+                tag = "429" if "429" in msg else "503"
+                print(f"[retry] {tag} hit — no Retry-After header, "
+                      f"backing off {wait:.1f}s (attempt {attempt+1}/{max_retries})")
+
+            time.sleep(wait)
 #VARK PROMPT
 class VARKProjector(dspy.Signature):
     """Accepts raw text content and a VARK learning style profile, then generates a customized, 
@@ -771,7 +857,7 @@ JUDGE_MODEL_A = os.environ.get("JUDGE_MODEL_A", "gemini/gemini-3.1-flash-lite")
 # เกณฑ์รายข้อ (ตัด sub-sub items ออกแล้ว — เหลือ A.1–A.4, B.1–B.5)
 VARK_CRITERIA = ["A.1", "A.2", "A.3", "A.4", "A.5","B.1", "B.2", "B.3", "B.4", "B.5"]
 QUIZ_CRITERIA = [f"C.{i}" for i in range(1, 11)]
-VIDEO_CRITERIA = [f"D.{i}" for i in range(1, 9)]  # D.1–D.8 (pipeline: query + relevance)
+VIDEO_CRITERIA = [f"D.{i}" for i in range(1, 11)]  # D.1–D.10 (pipeline: query + relevance)
 
 
 def _judge_label(model: str) -> str:
@@ -912,15 +998,25 @@ class VARKJudgeScore(dspy.Signature):
         desc='A JSON object of all 10 criteria (A.1–A.5, B.1–B.5), integer values 0–10'
     )
     feedback = dspy.OutputField(
-        desc="""A review written entirely in Thai. Structure: FIRST, output a score list with newline per criteria
-             example
-             "Feedback: Vark"
-             "A.1: 6/10"
-             "A.2: 3/10"
-             "A.3: 9/10"
-             FINALLY, provide a single, continuous paragraph 
-             Every criterion scoring below 8 must be explicitly explained by name (e.g., 'A.5 got 4 because...') 
-             detailing its weaknesses, alongside general strengths and improvements. Do not use bullet points or extra JSON headers."""
+        desc="""A review written entirely in Thai. Structure: FIRST, output a score list 
+         for ALL criteria with newline per criteria — list every single criterion 
+         regardless of score, e.g.:
+         "Feedback: Vark"
+         "A.1: 8/10"
+         "A.2: 3/10"
+         "A.3: 9/10"
+         "A.4: 7/10"
+         "A.5: 5/10"
+         "B.1: 8/10"
+         "B.2: 8/10"
+         "B.3: 7/10"
+         "B.4: 9/10"
+         "B.5: 8/10"
+         FINALLY, provide a single, continuous paragraph 
+         Every criterion scoring below 8 must be explicitly explained by name 
+         (e.g., 'A.5 got 4 because...') detailing its weaknesses, alongside 
+         general strengths and improvements. Do not use bullet points or extra 
+         JSON headers."""
     )
 
 #QUIZ JUDGE
@@ -1050,7 +1146,7 @@ class VideoPipelineJudge(dspy.Signature):
 
     - Selection Quality
     D.4 The clips selected in `relevant_indices` are actually relevant to the topic
-    D.5 No off-topic clips slipped into `relevant_indices` (no false positives)
+    D.5 Transcripts are actually relevant to the topic and have transcript
 
     - VARK Classification
     D.6 `vark_per_video` assigns V/A/R/K of each selected clip correctly per the clip's actual nature
@@ -1189,8 +1285,15 @@ def _render_report_body(report: dict, heading_level: int = 1) -> str:
     lines.append("")
     lines.append(f"- Generator (AI): **{gen}**")
     lines.append(f"- Mode: `{report.get('mode', '')}`")
-    lines.append(f"- Samples: {report.get('n')}")
-    lines.append(f"- Mean total: **{gen} --> {report.get('mean_total')}/10**")
+    n_total = report.get("n")
+    n_skipped = report.get("n_skipped", 0)
+    if n_skipped:
+        lines.append(f"- Samples: {n_total}  (scored: {report.get('n_scored', n_total)}, "
+                     f"skipped/error: {n_skipped})")
+    else:
+        lines.append(f"- Samples: {n_total}")
+    lines.append(f"- Mean total: **{gen} --> {report.get('mean_total')}/10** "
+                 f"(คำนวณจากตัวอย่างที่ generate สำเร็จเท่านั้น)")
     lines.append(f"- Judge: `{report.get('judge', {}).get('model', '')}`")
     if report.get("expected_match_avg") is not None:
         lines.append(f"- Expected-match: {report['expected_match_avg']} "
@@ -1212,7 +1315,13 @@ def _render_report_body(report: dict, heading_level: int = 1) -> str:
     for fb in report.get("feedbacks") or []:
         i = fb.get("i")
         total = fb.get("total")
-        shown = f"{total}/10" if total is not None else "ERR"
+        note = (fb.get("feedback") or "")
+        if total is not None:
+            shown = f"{total}/10"
+        elif "rate limit" in note.lower():
+            shown = "RATE-LIMITED (skipped)"
+        else:
+            shown = "ERR"
         lines.append(f"{h3} Example {i} — {gen} total {shown}")
         lines.append("")
 
@@ -1223,7 +1332,7 @@ def _render_report_body(report: dict, heading_level: int = 1) -> str:
             ))
             lines.append("")
 
-        review = (fb.get("feedback") or "").strip()
+        review = note.strip()
         if review:
             lines.append("**Feedback:**")
             lines.append("")
@@ -1326,7 +1435,7 @@ def _write_combined_report(target: str, model_reports: list, results: dict,
 
 
 def _criterion_avgs(per_list: list, criteria: list[str]) -> dict:
-    """เฉลี่ยคะแนนรายเกณฑ์ (0–10) ข้ามทุก example (ข้าม example ที่ judge error)"""
+    """เฉลี่ยคะแนนรายเกณฑ์ (0–10) ข้ามทุก example (ข้าม example ที่ judge error / skip)"""
     valid = [p for p in per_list if isinstance(p, dict)]
     if not valid:
         return {c: 0.0 for c in criteria}
@@ -1340,22 +1449,27 @@ def _build_criteria_report(label, n, totals, per_list, criteria, model_name,
                            mode, extra=None) -> dict:
     """สร้าง + print report สำหรับ judge แบบ per-criterion (0–10)
     คืน dict ที่มี mean_total (0–10), criterion_avgs, judge.model
+    totals ที่เป็น None (ตัวอย่างที่ generator พังระหว่างทาง เช่น โดน rate-limit)
+    จะไม่ถูกนับรวมใน mean_total / criterion_avgs — กันไม่ให้คะแนนเพี้ยนจาก error
     """
     valid_totals = [t for t in totals if t is not None and t >= 0]
+    skipped = n - len(valid_totals)
     mean_total = round(sum(valid_totals) / len(valid_totals), 2) if valid_totals else 0.0
     crit_avgs = _criterion_avgs(per_list, criteria)
     report = {
         "module": label,
         "mode": mode,
         "n": n,
-        "mean_total": mean_total,           # คะแนนรวมเฉลี่ย 0–10
+        "n_scored": len(valid_totals),
+        "n_skipped": skipped,
+        "mean_total": mean_total,           # คะแนนรวมเฉลี่ย 0–10 (เฉพาะตัวอย่างที่สำเร็จ)
         "criterion_avgs": crit_avgs,        # ราย criterion 0–10
         "judge": {"model": model_name},
     }
     if extra:
         report.update(extra)
     print(f"\n📊 {label} — LLM-as-Judge ({_judge_label(JUDGE_MODEL_A)}, per-criterion 0–10)")
-    print(f"   Samples      : {n}")
+    print(f"   Samples      : {n}  (scored: {len(valid_totals)}, skipped/error: {skipped})")
     print(f"   Mean total   : {mean_total}/10")
     print(f"   Per-criterion averages (0–10):")
     for c in criteria:
@@ -1371,6 +1485,10 @@ def evaluate_testset(module, testset: list, blind: bool = False,
     blind=True → judge ไม่เห็น expected.rationale (ลด reference leak)
     gen_lm    → generator LM ที่อยากเทียบ (None = ใช้ global LM เดิม)
     gen_label → ชื่อ AI ที่จะโชว์ใน report (เช่น "Typhoon")
+
+    ถ้า generator ล้มระหว่าง generate (เช่น โดน rate-limit 429 จาก provider) ตัวอย่างนั้น
+    จะถูก "ข้าม" (ไม่นับคะแนน + บันทึกเหตุผลไว้ใน feedback) แทนที่จะปล่อยให้ exception
+    หลุดขึ้นไป crash ทั้งสคริปต์ — โมเดล/ตัวอย่างอื่นที่เหลือยังรันต่อได้ตามปกติ
     """
     judge = _get_judge()
     mode = "blind" if blind else "ref-augmented"
@@ -1381,7 +1499,18 @@ def evaluate_testset(module, testset: list, blind: bool = False,
     n = len(testset)
     for i, ex in enumerate(testset, 1):
         with _gen_context(gen_lm):
-            pred = module(context=ex.context, vark_style=ex.vark_style)
+            pred, err_note = _call_with_retry(
+                module, context=ex.context, vark_style=ex.vark_style,
+                max_retries=3, base_backoff=10
+            )
+        if pred is None:
+            print(f"[{i}/{n}] {gen_label} generation FAILED — skipping. {err_note[:120]}")
+            per_list.append(None)
+            totals.append(None)
+            feedbacks.append({"i": i, "total": None, "scores": None,
+                            "output": "", "feedback": err_note})
+            continue
+
         per, total, fb = _vark_judge(ex, pred, judge, with_reference=not blind)
         per_list.append(per)
         totals.append(total if per is not None else None)
@@ -1426,6 +1555,9 @@ def evaluate_quiz_testset(module, testset: list, blind: bool = False,
     ให้ judge รีวิวชุดคำถามที่ generate ออกมาล้วนๆ — ไม่เทียบกับ expected
     blind=True → judge ไม่เห็น reference (expected.topics)
     gen_lm/gen_label → generator AI ที่อยากเทียบ (None = global LM เดิม)
+
+    ถ้า generator ล้มระหว่าง generate (เช่น โดน rate-limit 429 จาก provider) ตัวอย่างนั้น
+    จะถูกข้าม — ไม่ทำให้ทั้ง batch/สคริปต์ crash
     """
     judge = _get_judge()
     mode = "blind" if blind else "ref-augmented"
@@ -1435,11 +1567,20 @@ def evaluate_quiz_testset(module, testset: list, blind: bool = False,
     n = len(testset)
     for i, ex in enumerate(testset, 1):
         with _gen_context(gen_lm):
-            pred = module(
+            pred, err_note = _call_with_retry(
+                module,
                 learning_material=ex.learning_material,
                 vark_style=ex.vark_style,
                 count=ex.count,
+                max_retries=3, base_backoff=10
             )
+        if pred is None:
+            print(f"[Quiz eval] {gen_label} example {i}/{n} generation FAILED — skipping. {err_note[:120]}")
+            per_list.append(None)
+            totals.append(None)
+            feedbacks.append({"i": i, "total": None, "scores": None,
+                            "output": "", "feedback": err_note})
+            continue
         per, total, fb = _quiz_judge(ex, pred, judge, with_reference=not blind)
         per_list.append(per)
         totals.append(total if per is not None else None)
@@ -1469,6 +1610,11 @@ def _build_video_lines(videos: list[dict]) -> str:
     """สร้างรายการวิดีโอแบบมีเลขลำดับ (1., 2., ...) พร้อม title/channel/views/transcript
     สำหรับป้อนให้ VideoRelevanceModule — mirror ของ filter_videos_by_relevance ใน main.py
     (sync version สำหรับ eval)
+
+    เฉพาะคลิปที่ "มี transcript จริง" เท่านั้นที่จะถูกใส่เข้า list — คลิปที่ fetch
+    transcript ไม่สำเร็จ (ทั้ง youtube-transcript-api และ Gemini fallback ล้มเหลว/โดน
+    rate-limit) จะถูกกรองทิ้งตั้งแต่ตรงนี้ ไม่ส่งเข้า LLM เลย เพื่อไม่ให้ LLM ต้องเดา
+    ความเกี่ยวข้องจากคลิปที่ไม่มีข้อมูลอะไรให้ตัดสินใจ (title อย่างเดียวไม่พอ)
     """
     import asyncio
     real = [v for v in videos if not v.get("is_search_link") and v.get("video_id")]
@@ -1478,18 +1624,30 @@ def _build_video_lines(videos: list[dict]) -> str:
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=4) as pool:
         transcripts = list(pool.map(_fetch_transcript, vids))
+
+    # ── กรองคลิปที่ไม่มี transcript ออกก่อนส่งเข้า prompt ──
+    paired = [(v, t) for v, t in zip(real, transcripts) if t and t.strip()]
+    dropped = len(real) - len(paired)
+    if dropped:
+        print(f"[video_lines] dropped {dropped}/{len(real)} clip(s) with no transcript "
+              f"(transcript fetch failed / no captions / rate-limited)")
+    if not paired:
+        return ""
+
+    vids_kept = [v["video_id"] for v, _ in paired]
     try:
-        stats = asyncio.run(_fetch_video_stats(vids))
+        stats = asyncio.run(_fetch_video_stats(vids_kept))
     except Exception as e:
         print(f"[video_eval] stats fetch error: {e}")
         stats = {}
+
     return "\n".join(
         f"{i+1}. Title: {v['title']}\n"
         f"   Channel: {v.get('channel','')}\n"
         f"   Views: {_fmt_count(stats.get(v['video_id'],{}).get('views',0))}  "
         f"Likes: {_fmt_count(stats.get(v['video_id'],{}).get('likes',0))}\n"
-        f"   Transcript: {(t or '(no transcript)')[:500]}"
-        for i, (v, t) in enumerate(zip(real, transcripts))
+        f"   Transcript: {t[:500]}"
+        for i, (v, t) in enumerate(paired)
     )
 
 
@@ -1504,6 +1662,9 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
     relevance_module = VideoRelevanceModule (เลือกคลิปที่เกี่ยว + จัด VARK)
     blind ไม่มีผลกับ pipeline นี้ (ไม่มี reference) — เก็บไว้เพื่อ signature เดียวกับตัวอื่น
     gen_lm/gen_label → generator AI ที่อยากเทียบ (None = global LM เดิม)
+
+    ถ้า generator ล้มระหว่าง generate query หรือ relevance (เช่น โดน rate-limit 429)
+    ตัวอย่างนั้นจะถูกข้าม — ไม่ทำให้ทั้ง batch/สคริปต์ crash
     """
     import asyncio
     judge = _get_judge()
@@ -1517,12 +1678,23 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
     n = len(testset)
     for i, ex in enumerate(testset, 1):
         pdf = ex.pdf_content
+
         with _gen_context(gen_lm):
-            qpred = query_module(pdf_content=pdf)
+            qpred, err_note = _call_with_retry(
+                query_module, pdf_content=pdf,
+                max_retries=3, base_backoff=10
+            )
+        if qpred is None:
+            print(f"[Video eval] {gen_label} example {i}/{n} query-gen FAILED — skipping. {err_note[:120]}")
+            per_list.append(None)
+            totals.append(None)
+            feedbacks.append({"i": i, "total": None, "scores": None,
+                              "output": "", "feedback": err_note})
+            continue
+
         queries_raw = qpred.youtube_queries or "[]"
         queries = _safe_json(queries_raw)
         if not isinstance(queries, list):
-            # last-resort: extract quoted strings
             queries = _re.findall(r'"([^"\n]{3,})"', queries_raw) or [pdf[:60]]
         queries = [str(q) for q in queries][:7]
 
@@ -1535,7 +1707,22 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
 
         if video_lines:
             with _gen_context(gen_lm):
-                rpred = relevance_module(topic=pdf[:1000], videos_with_transcripts=video_lines)
+                rpred, err_note = _call_with_retry(
+                    relevance_module,
+                    topic=pdf[:1000],
+                    videos_with_transcripts=video_lines,
+                    max_retries=3, base_backoff=10
+                )
+            if rpred is None:
+                print(f"[Video eval] {gen_label} example {i}/{n} relevance-gen FAILED — skipping. "
+                      f"{err_note[:120]}")
+                per_list.append(None)
+                totals.append(None)
+                feedbacks.append({"i": i, "total": None, "scores": None,
+                                  "output": f"queries: {queries_raw}\n"
+                                            f"--- videos searched ---\n{video_lines or '(none)'}",
+                                  "feedback": err_note})
+                continue
             rel_idx = rpred.relevant_indices or "[]"
             vark_pv = rpred.vark_per_video or "{}"
         else:
@@ -1557,7 +1744,6 @@ def evaluate_video_testset(query_module, relevance_module, testset: list,
                           "output": output_blob,
                           "feedback": fb})
 
-        # ── print output ที่ AI หามาได้ (ให้เห็นผลลัพธ์ระหว่าง eval) ──
         shown = f"{total}/10" if per is not None else "ERR"
         print("─" * 70)
         print(f"[Video eval] {gen_label} example {i}/{n} — total={shown}  "
@@ -1662,7 +1848,7 @@ def _render_rubric_md(target_reports: dict, results: dict, judge_model: str,
     lines.append(f"- Mode: `{mode}`")
     lines.append(f"- AI ที่เทียบ (slot): {', '.join(model_labels) or '(none)'}")
     lines.append("")
-    lines.append("คะแนนแต่ละช่อง = ค่าเฉลี่ยรายเกณฑ์ (0–10) ข้ามทุกตัวอย่าง — "
+    lines.append("คะแนนแต่ละช่อง = ค่าเฉลี่ยรายเกณฑ์ (0–10) ข้ามทุกตัวอย่างที่ generate สำเร็จ — "
                  "ตัวหนา = AI ที่ทำคะแนนสูงสุดในเกณฑ์นั้น")
     lines.append("")
 
@@ -1709,6 +1895,17 @@ def _render_rubric_md(target_reports: dict, results: dict, judge_model: str,
             else:
                 tcells.append(f"{t}")
         lines.append("| **Mean total** | " + " | ".join(tcells) + " |")
+
+        # แถวสรุปจำนวนที่ถูกข้าม (rate-limit / error) ต่อ AI
+        skip_cells = []
+        any_skip = False
+        for _label, rep in mreports:
+            sk = rep.get("n_skipped", 0)
+            if sk:
+                any_skip = True
+            skip_cells.append(str(sk))
+        if any_skip:
+            lines.append("| Skipped (rate-limit/error) | " + " | ".join(skip_cells) + " |")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -1739,6 +1936,10 @@ def evaluate_models_comparison(targets: list[str],
     """รัน eval ของแต่ละ generator AI ใน slot — รวมทุก AI ไว้ใน report เดียวต่อ target
     เช่น reports/vark_eval{n}.json + .md = รวม Typhoon + Qwen ในไฟล์เดียว (เรียงตาม parser)
     พร้อมตารางเทียบคะแนน "บนสุด" ของไฟล์
+
+    ถ้า AI ตัวใดตัวหนึ่งพังระหว่าง generate (เช่น โดน rate-limit 429 จาก free-tier
+    provider) ตัวอย่างนั้นจะถูกข้ามเฉพาะจุด (ดู evaluate_testset/evaluate_quiz_testset/
+    evaluate_video_testset) — ไม่ทำให้ AI ตัวอื่นหรือ target อื่นในลูปนี้หยุดทำงานไปด้วย
     targets       : subset ของ ["vark", "quiz", "video"]
     model_labels  : list ของ label จาก GENERATOR_MODELS (None = ทั้ง slot)
     คืน results[target][label] = mean_total
