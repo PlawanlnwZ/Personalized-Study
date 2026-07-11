@@ -9,6 +9,7 @@ import json
 import time
 import random
 import httpx
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -472,7 +473,7 @@ async def generate(
             # ── Step 2: VARK study-guide generation ──────────
             yield _sse("progress", {"pct": 20, "label": "👨‍🏫 กำลังสร้างสื่อการเรียนรู้..."})
             try:
-                prediction = vark_module(context=context, vark_style=vark_style)
+                prediction = await asyncio.to_thread(vark_module, context=context, vark_style=vark_style)
             except Exception as e:
                 yield _sse("error", {"detail": f"AI generation error: {e}"})
                 return
@@ -484,7 +485,7 @@ async def generate(
             youtube_queries_raw = "[]"
             if query_module is not None:
                 try:
-                    q_pred = query_module(pdf_content=context)
+                    q_pred = await asyncio.to_thread(query_module, pdf_content=context)
                     youtube_queries_raw = q_pred.youtube_queries or "[]"
                 except Exception as e:
                     print(f"[VideoQueryModule] error: {e}")
@@ -552,7 +553,8 @@ async def generate_quiz(req: QuizRequest):
         raise HTTPException(status_code=503, detail="Quiz module not initialized")
 
     try:
-        pred = quiz_module(
+        pred = await asyncio.to_thread(
+            quiz_module,
             learning_material=req.learning_material[:4000],
             vark_style=json.dumps(req.vark_style, ensure_ascii=False),
         )
@@ -628,7 +630,8 @@ async def adapt(req: AdaptRequest):
         return {"remediation": "", "mastered": True, "weak_concepts": []}
 
     try:
-        pred = remediation_module(
+        pred = await asyncio.to_thread(
+            remediation_module,
             learning_material=req.learning_material[:4000],
             vark_style=json.dumps(req.vark_style, ensure_ascii=False),
             weak_spots=json.dumps(weak, ensure_ascii=False),
