@@ -307,9 +307,9 @@ GENERATOR_MODELS: dict[str, dict] = {
         "temperature": 0.7,
     },
     "GPTOSS": {
-        "model": "openai/gpt-oss-120b:free",
-        "api_base": "https://openrouter.ai/api/v1",
-        "api_key_env": "OPENROUTER_API_KEY",
+        "model": "openai/openai/gpt-oss-120b",
+        "api_base": "https://integrate.api.nvidia.com/v1",
+        "api_key_env": "NVIDIA_API_KEY",
         "max_tokens": 16384,
         "temperature": 0.7,
     },
@@ -396,8 +396,7 @@ def _gen_context(gen_lm):
 
 def _gen_error_note(e: Exception) -> tuple[bool, str]:
     """ตรวจว่า exception จาก generator (ตอน generate เนื้อหา/quiz/query/relevance) เป็น
-    rate-limit จาก provider ไหม (เช่น OpenRouter free-tier 429, Gemini RESOURCE_EXHAUSTED)
-    คืน (is_rate_limited, note ภาษาไทยสำหรับใส่ใน feedback/report)
+    rate-limit จาก provider ไหม 
 
     ใช้ตรงจุดที่เรียก generator module ในลูป eval — เพื่อ "ข้าม" ตัวอย่างที่พังแทนที่จะ
     ปล่อยให้ exception หลุดขึ้นไปทำให้ทั้งสคริปต์ crash (เสีย progress ของ model/ตัวอย่างอื่น)
