@@ -7,9 +7,12 @@ import os
 import re
 import json
 import time
+import threading
 import random
 import httpx
 import asyncio
+import uuid
+from fastapi import BackgroundTasks
 from datetime import datetime
 from typing import Optional
 
@@ -464,6 +467,7 @@ async def generate(
         try:
             # ── Step 1: PDF extract ──────────────────────────
             yield _sse("progress", {"pct": 5, "label": "📄 กำลังอ่านไฟล์ PDF..."})
+            
             _t = time.perf_counter()
             context = await extract_pdf_text(pdf_bytes)
             _t = _lap("pdf_extract", _t)
@@ -472,6 +476,7 @@ async def generate(
 
             # ── Step 2: VARK study-guide generation ──────────
             yield _sse("progress", {"pct": 20, "label": "👨‍🏫 กำลังสร้างสื่อการเรียนรู้..."})
+            print(f"[debug] active threads at vark_generate start: {threading.active_count()}")
             try:
                 prediction = await asyncio.to_thread(vark_module, context=context, vark_style=vark_style)
             except Exception as e:
@@ -645,6 +650,83 @@ async def adapt(req: AdaptRequest):
         "weak_concepts": sorted({w["concept"] for w in weak}),
     }
 
+# ──────────────────────────────────────────────
+# for mobile background to work
+# ──────────────────────────────────────────────
+# simple in-memory job store — {job_id: {"status": ..., "progress": ..., "result": ..., "error": ...}}
+_jobs: dict[str, dict] = {}
+
+async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, topic: str):
+    def update(pct, label):
+        _jobs[job_id]["progress"] = {"pct": pct, "label": label}
+
+    try:
+        update(5, "📄 กำลังอ่านไฟล์ PDF...")
+        context = await extract_pdf_text(pdf_bytes)
+        if topic:
+            context = f"{context}\n\n[คำสั่งเพิ่มเติม: {topic}]"
+
+        update(20, "👨‍🏫 กำลังสร้างสื่อการเรียนรู้...")
+        prediction = await asyncio.to_thread(vark_module, context=context, vark_style=vark_style)
+        learning_material = prediction.learning_material or ""
+
+        update(50, "📽️ กำลังวางแผนค้นหาวิดีโอ...")
+        youtube_queries_raw = "[]"
+        if query_module is not None:
+            q_pred = await asyncio.to_thread(query_module, pdf_content=context)
+            youtube_queries_raw = q_pred.youtube_queries or "[]"
+
+        yt_queries = _parse_json_loose(youtube_queries_raw)
+        yt_queries = [q for q in yt_queries if isinstance(q, str) and q.strip()] or [topic.strip() or context[:80].strip() or "การเรียนรู้"]
+
+        update(65, "🔍 กำลังค้นหาวิดีโอ YouTube ที่เกี่ยวข้อง...")
+        videos = await search_youtube(yt_queries, max_per_query=3)
+
+        update(85, "🎯 กำลังคัดกรองวิดีโอที่ตรงเนื้อหา...")
+        topic_hint = topic.strip() or context[:150].strip()
+        videos = await filter_videos_by_relevance(videos, topic_hint)
+
+        vark_data = {}
+        try:
+            vark_data = json.loads(vark_style)
+        except Exception:
+            pass
+
+        update(100, "✅ เสร็จแล้ว!")
+        _jobs[job_id]["status"] = "done"
+        _jobs[job_id]["result"] = {
+            "learning_material": learning_material,
+            "youtube_queries": yt_queries,
+            "videos": videos,
+            "context_snippet": context[:500],
+            "vark_style": vark_data,
+        }
+    except Exception as e:
+        _jobs[job_id]["status"] = "error"
+        _jobs[job_id]["error"] = str(e)
+
+
+@app.post("/generate/start")
+async def generate_start(
+    pdf: UploadFile = File(...),
+    vark_style: str = Form(...),
+    topic: str = Form(""),
+):
+    if vark_module is None:
+        raise HTTPException(status_code=503, detail="AI module not initialized")
+    pdf_bytes = await pdf.read()
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running", "progress": {"pct": 0, "label": "starting"}, "result": None, "error": None}
+    asyncio.create_task(_run_generation_job(job_id, pdf_bytes, vark_style, topic))
+    return {"job_id": job_id}
+
+
+@app.get("/generate/status/{job_id}")
+async def generate_status(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
 
 @app.post("/evaluate")
 async def evaluate():
@@ -689,7 +771,7 @@ async def evaluate():
         "report_md": report_path[:-5] + ".md",
     }
 
-
+    
 # ──────────────────────────────────────────────
 # Run
 # ──────────────────────────────────────────────

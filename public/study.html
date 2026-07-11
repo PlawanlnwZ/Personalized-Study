@@ -3287,47 +3287,28 @@
         fd.append('vark_style', JSON.stringify(varkScores));
         fd.append('topic', '');
 
-        const controller = new AbortController();
-        const GEN_TIMEOUT_MS = 180_000;
-        const timeoutId = setTimeout(() => controller.abort(), GEN_TIMEOUT_MS);
-
-        let resp;
+        let startResp;
         try {
-          resp = await fetch(`${API_BASE}/generate`, { method: 'POST', body: fd, signal: controller.signal });
-        } finally {
-          clearTimeout(timeoutId);
+          startResp = await fetch(`${API_BASE}/generate/start`, { method: 'POST', body: fd });
+        } catch (e) {
+          throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ');
         }
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || `API error ${resp.status}`);
+        if (!startResp.ok) {
+          const err = await startResp.json().catch(() => ({}));
+          throw new Error(err.detail || `API error ${startResp.status}`);
         }
+        const { job_id } = await startResp.json();
 
-        // ── อ่าน SSE stream ทีละ chunk ─────────────────────────
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
+        // ── Poll job status until done/error (survives phone screen lock) ──
         let finalData = null;
-
         while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-
-          let idx;
-          while ((idx = buf.indexOf('\n\n')) !== -1) {
-            const block = buf.slice(0, idx);
-            buf = buf.slice(idx + 2);
-            const evt = parseSSEBlock(block);
-            if (!evt) continue;
-
-            if (evt.event === 'progress') {
-              GenProgress.update(evt.data.pct, evt.data.label);
-            } else if (evt.event === 'error') {
-              throw new Error(evt.data.detail || 'เกิดข้อผิดพลาด');
-            } else if (evt.event === 'result') {
-              finalData = evt.data;
-            }
-          }
+          const statusResp = await fetch(`${API_BASE}/generate/status/${job_id}`);
+          if (!statusResp.ok) throw new Error(`status check failed: ${statusResp.status}`);
+          const job = await statusResp.json();
+          if (job.progress) GenProgress.update(job.progress.pct, job.progress.label);
+          if (job.status === 'done') { finalData = job.result; break; }
+          if (job.status === 'error') throw new Error(job.error || 'เกิดข้อผิดพลาด');
+          await new Promise(r => setTimeout(r, 2000));
         }
 
         if (!finalData) throw new Error('ไม่ได้รับผลลัพธ์จากเซิร์ฟเวอร์');
