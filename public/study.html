@@ -2399,6 +2399,49 @@
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
+
+    .mobile-pdf-list {
+      display: none;
+    }
+
+    @media (max-width: 580px) {
+      .mobile-pdf-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .mobile-pdf-chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 100px;
+        border: 1.5px solid var(--border);
+        background: var(--card);
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .mobile-pdf-chip.active {
+        border-color: var(--accent-v);
+        color: var(--accent-v);
+        font-weight: 700;
+        background: rgba(79, 109, 240, 0.08);
+      }
+
+      .mobile-pdf-chip button {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        font-size: 13px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 2px;
+      }
+    }
   </style>
 </head>
 
@@ -2524,7 +2567,8 @@
           <span>✦ Generate</span>
         </button>
       </div>
-
+      <!-- Mobile-only PDF file chips (desktop already has the sidebar) -->
+      <div id="mobile-pdf-list" class="mobile-pdf-list"></div>
       <div class="study-body">
 
         <!-- Unified Study Panel -->
@@ -2864,16 +2908,41 @@
         if (pdfFiles.length === 1) selectPdf(0);
       }
     }
+    function renderMobileList() {
+      const wrap = document.getElementById('mobile-pdf-list');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      pdfFiles.forEach((f, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'mobile-pdf-chip' + (idx === activePdfIdx ? ' active' : '');
+        chip.dataset.idx = idx;
+        const short = f.name.length > 16 ? f.name.slice(0, 14) + '…' : f.name;
+        chip.innerHTML = `<span data-idx="${idx}">${short}</span><button data-idx="${idx}" aria-label="ลบ">✕</button>`;
+        wrap.appendChild(chip);
+      });
+    }
 
+    // One-time delegated listener
+    document.getElementById('mobile-pdf-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (btn) {
+        e.stopPropagation();
+        removePdf(Number(btn.dataset.idx), e);
+        return;
+      }
+      const span = e.target.closest('span');
+      if (span) selectPdf(Number(span.dataset.idx));
+    });
     function renderTabList() {
       const list = document.getElementById('pdf-tab-list');
       const empty = document.getElementById('tabs-empty');
       list.querySelectorAll('.pdf-tab-item').forEach(e => e.remove());
-      if (pdfFiles.length === 0) { empty.style.display = ''; return; }
+      if (pdfFiles.length === 0) { empty.style.display = ''; renderMobileList(); return; }
       empty.style.display = 'none';
       pdfFiles.forEach((f, idx) => {
         const div = document.createElement('div');
         div.className = 'pdf-tab-item' + (idx === activePdfIdx ? ' active' : '');
+        div.dataset.idx = idx;                       // ⬅ store idx on the element
         const short = f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name;
         div.innerHTML = `
       <span class="pdf-tab-icon">📄</span>
@@ -2881,15 +2950,24 @@
         <div class="pdf-tab-name" title="${f.name}">${short}</div>
         <div class="pdf-tab-pages">${f.pageCount} หน้า</div>
       </div>
-      <button class="pdf-tab-remove" onclick="removePdf(${idx},event)" title="ลบ">✕</button>
+      <button class="pdf-tab-remove" data-idx="${idx}" title="ลบ">✕</button>
     `;
-        div.addEventListener('click', (e) => {
-          if (e.target.classList.contains('pdf-tab-remove')) return;
-          selectPdf(idx);
-        });
         list.appendChild(div);
       });
+      renderMobileList();
     }
+
+    // One-time delegated listener — set this up ONCE outside renderTabList, e.g. right after DOMContentLoaded / at script init
+    document.getElementById('pdf-tab-list').addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.pdf-tab-remove');
+      if (removeBtn) {
+        e.stopPropagation();
+        removePdf(Number(removeBtn.dataset.idx), e);
+        return;
+      }
+      const item = e.target.closest('.pdf-tab-item');
+      if (item) selectPdf(Number(item.dataset.idx));
+    });
 
     function selectPdf(idx) {
       activePdfIdx = idx;
