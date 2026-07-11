@@ -657,17 +657,26 @@ async def adapt(req: AdaptRequest):
 _jobs: dict[str, dict] = {}
 
 async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, topic: str):
+    _t_job = time.perf_counter()
+    def _lap(label: str, since: float) -> float:
+        now = time.perf_counter()
+        print(f"[timing][{job_id[:8]}] {label}: {now - since:.1f}s (total {now - _t_job:.1f}s)", flush=True)
+        return now
+
     def update(pct, label):
         _jobs[job_id]["progress"] = {"pct": pct, "label": label}
 
     try:
         update(5, "📄 กำลังอ่านไฟล์ PDF...")
+        _t = time.perf_counter()
         context = await extract_pdf_text(pdf_bytes)
+        _t = _lap("pdf_extract", _t)
         if topic:
             context = f"{context}\n\n[คำสั่งเพิ่มเติม: {topic}]"
 
         update(20, "👨‍🏫 กำลังสร้างสื่อการเรียนรู้...")
         prediction = await asyncio.to_thread(vark_module, context=context, vark_style=vark_style)
+        _t = _lap("vark_generate", _t)
         learning_material = prediction.learning_material or ""
 
         update(50, "📽️ กำลังวางแผนค้นหาวิดีโอ...")
@@ -675,16 +684,19 @@ async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, to
         if query_module is not None:
             q_pred = await asyncio.to_thread(query_module, pdf_content=context)
             youtube_queries_raw = q_pred.youtube_queries or "[]"
+        _t = _lap("query_generate", _t)
 
         yt_queries = _parse_json_loose(youtube_queries_raw)
         yt_queries = [q for q in yt_queries if isinstance(q, str) and q.strip()] or [topic.strip() or context[:80].strip() or "การเรียนรู้"]
 
         update(65, "🔍 กำลังค้นหาวิดีโอ YouTube ที่เกี่ยวข้อง...")
         videos = await search_youtube(yt_queries, max_per_query=3)
+        _t = _lap("youtube_search", _t)
 
         update(85, "🎯 กำลังคัดกรองวิดีโอที่ตรงเนื้อหา...")
         topic_hint = topic.strip() or context[:150].strip()
         videos = await filter_videos_by_relevance(videos, topic_hint)
+        _t = _lap("relevance_filter", _t)
 
         vark_data = {}
         try:
@@ -693,6 +705,7 @@ async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, to
             pass
 
         update(100, "✅ เสร็จแล้ว!")
+        _lap("TOTAL", _t_job)
         _jobs[job_id]["status"] = "done"
         _jobs[job_id]["result"] = {
             "learning_material": learning_material,
@@ -702,6 +715,7 @@ async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, to
             "vark_style": vark_data,
         }
     except Exception as e:
+        _lap("FAILED", _t_job)
         _jobs[job_id]["status"] = "error"
         _jobs[job_id]["error"] = str(e)
 
