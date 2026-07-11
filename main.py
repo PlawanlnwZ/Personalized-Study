@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-
+from fastapi.responses import StreamingResponse
 from dspy_module import (
     configure_lm,
     load_module,
@@ -54,6 +54,9 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 # ──────────────────────────────────────────────
 # Startup: configure DSPy
 # ──────────────────────────────────────────────
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 vark_module: Optional[VARKModule] = None
 quiz_module: Optional[QuizModule] = None
 query_module: Optional[VideoQueryModule] = None
@@ -437,89 +440,101 @@ async def get_video_info(video_id: str):
 @app.post("/generate")
 async def generate(
     pdf: UploadFile = File(...),
-    vark_style: str = Form(...),   # JSON string
-    topic: str      = Form(""),    # optional instruction
+    vark_style: str = Form(...),
+    topic: str      = Form(""),
 ):
     """
-    รับ PDF + VARK profile → คืน learning_material (Markdown) + YouTube videos
+    รับ PDF + VARK profile → stream progress event ระหว่างทาง แล้วปิดท้ายด้วย
+    event "result" ที่มี payload เดิม (learning_material + videos + ...)
     """
     if vark_module is None:
         raise HTTPException(status_code=503, detail="AI module not initialized")
 
-    _t_req = time.perf_counter()
-    def _lap(label: str, since: float) -> float:
-        now = time.perf_counter()
-        print(f"[timing] {label}: {now - since:.1f}s (total {now - _t_req:.1f}s)", flush=True)
-        return now
-
-    # 1. Extract text from PDF
-    _t = time.perf_counter()
+    # อ่านไฟล์ก่อนเข้า generator — UploadFile อาจถูกปิดหลัง request คืนค่าแล้ว
     pdf_bytes = await pdf.read()
-    context   = await extract_pdf_text(pdf_bytes)
-    _t = _lap("pdf_extract", _t)
 
-    if topic:
-        context = f"{context}\n\n[คำสั่งเพิ่มเติม: {topic}]"
+    async def event_stream():
+        _t_req = time.perf_counter()
+        def _lap(label: str, since: float) -> float:
+            now = time.perf_counter()
+            print(f"[timing] {label}: {now - since:.1f}s (total {now - _t_req:.1f}s)", flush=True)
+            return now
 
-    # 2. Run DSPy module
-    try:
-        prediction = vark_module(context=context, vark_style=vark_style)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI generation error: {e}")
-    _t = _lap("vark_generate", _t)
-
-    learning_material = prediction.learning_material or ""
-
-    # 2b. Generate YouTube search queries from context (separate module)
-    youtube_queries_raw = "[]"
-    if query_module is not None:
         try:
-            q_pred = query_module(pdf_content=context)
-            youtube_queries_raw = q_pred.youtube_queries or "[]"
+            # ── Step 1: PDF extract ──────────────────────────
+            yield _sse("progress", {"pct": 5, "label": "📄 กำลังอ่านไฟล์ PDF..."})
+            _t = time.perf_counter()
+            context = await extract_pdf_text(pdf_bytes)
+            _t = _lap("pdf_extract", _t)
+            if topic:
+                context = f"{context}\n\n[คำสั่งเพิ่มเติม: {topic}]"
+
+            # ── Step 2: VARK study-guide generation ──────────
+            yield _sse("progress", {"pct": 20, "label": "👨‍🏫 กำลังสร้างสื่อการเรียนรู้..."})
+            try:
+                prediction = vark_module(context=context, vark_style=vark_style)
+            except Exception as e:
+                yield _sse("error", {"detail": f"AI generation error: {e}"})
+                return
+            _t = _lap("vark_generate", _t)
+            learning_material = prediction.learning_material or ""
+
+            # ── Step 3: YouTube query generation ─────────────
+            yield _sse("progress", {"pct": 50, "label": "📽️ กำลังวางแผนค้นหาวิดีโอ..."})
+            youtube_queries_raw = "[]"
+            if query_module is not None:
+                try:
+                    q_pred = query_module(pdf_content=context)
+                    youtube_queries_raw = q_pred.youtube_queries or "[]"
+                except Exception as e:
+                    print(f"[VideoQueryModule] error: {e}")
+            _t = _lap("query_generate", _t)
+
+            try:
+                yt_queries = _parse_json_loose(youtube_queries_raw)
+                yt_queries = [q for q in yt_queries if isinstance(q, str) and q.strip()]
+            except Exception:
+                yt_queries = []
+            if not yt_queries:
+                fallback_q = topic.strip() if topic.strip() else context[:80].strip()
+                yt_queries = [fallback_q] if fallback_q else ["การเรียนรู้"]
+
+            # ── Step 4: YouTube search ───────────────────────
+            yield _sse("progress", {"pct": 65, "label": "🔍 กำลังค้นหาวิดีโอ YouTube ที่เกี่ยวข้อง..."})
+            videos = await search_youtube(yt_queries, max_per_query=3)
+            _t = _lap("youtube_search", _t)
+
+            # ── Step 5: Relevance filter ──────────────────────
+            yield _sse("progress", {"pct": 85, "label": "🎯 กำลังคัดกรองวิดีโอที่ตรงเนื้อหา..."})
+            topic_hint = topic.strip() or context[:150].strip()
+            videos = await filter_videos_by_relevance(videos, topic_hint)
+            _t = _lap("relevance_filter", _t)
+
+            vark_data = {}
+            try:
+                vark_data = json.loads(vark_style)
+            except Exception:
+                pass
+            session_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{id(prediction)}"
+
+            # ── Done: ส่ง payload จริง ─────────────────────────
+            yield _sse("progress", {"pct": 100, "label": "✅ เสร็จแล้ว!"})
+            yield _sse("result", {
+                "session_id":        session_id,
+                "learning_material": learning_material,
+                "youtube_queries":   yt_queries,
+                "videos":            videos,
+                "context_snippet":   context[:500],
+                "vark_style":        vark_data,
+            })
         except Exception as e:
-            print(f"[VideoQueryModule] error: {e}")
-    _t = _lap("query_generate", _t)
+            yield _sse("error", {"detail": str(e)})
 
-    # 3. Parse YouTube queries (robust — handles markdown fences, trailing commas, CoT text)
-    try:
-        yt_queries = _parse_json_loose(youtube_queries_raw)
-        yt_queries = [q for q in yt_queries if isinstance(q, str) and q.strip()]
-    except Exception:
-        yt_queries = []
-
-    # ถ้ายังไม่ได้ query เลย ให้ใช้หัวข้อจาก topic หรือ context แทน
-    if not yt_queries:
-        fallback_q = topic.strip() if topic.strip() else context[:80].strip()
-        yt_queries = [fallback_q] if fallback_q else ["การเรียนรู้"]
-
-    print(f"[DEBUG] youtube_queries_raw: {repr(youtube_queries_raw[:200])}")
-    print(f"[DEBUG] yt_queries parsed: {yt_queries}")
-
-    # 4. Fetch YouTube videos and filter by transcript relevance
-    videos = await search_youtube(yt_queries, max_per_query=3)
-    _t = _lap("youtube_search", _t)
-    topic_hint = topic.strip() or context[:150].strip()
-    videos = await filter_videos_by_relevance(videos, topic_hint)
-    _t = _lap("relevance_filter", _t)
-    print(f"[DEBUG] videos after relevance filter: {len(videos)}")
-
-    # 5. Build session record
-    vark_data = {}
-    try:
-        vark_data = json.loads(vark_style)
-    except Exception:
-        pass
-
-    session_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{id(prediction)}"
-
-    return {
-        "session_id": session_id,
-        "learning_material": learning_material,
-        "youtube_queries": yt_queries,
-        "videos": videos,
-        "context_snippet": context[:500],
-        "vark_style": vark_data,
-    }
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 class QuizRequest(BaseModel):
