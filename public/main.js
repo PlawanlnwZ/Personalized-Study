@@ -146,7 +146,7 @@ const TTS = {
 
     // Bank 1 → sound1-16, Bank 2 → sound17-32
     const n     = currentQ + 1 + (currentBankIdx * 16);
-    const url   = `VARKsound/sound${n}.wav`;
+    const url   = `/static/VARKsound/sound${n}.wav`;
     const audio = new Audio(url);
     this._audio = audio;
 
