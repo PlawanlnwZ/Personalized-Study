@@ -2765,6 +2765,12 @@
       sessionStorage.setItem('__step_strip_hidden__', '1');
     }
 
+    // detect A1 language thai or eng
+    function detectTtsLang(text) {
+      const thaiChars = (text.match(/[\u0E00-\u0E7F]/g) || []).length;
+      return thaiChars > text.length * 0.05 ? 'th' : 'en';
+    }
+
     // ─── Phase 3: VARKy narrator TTS (gTTS via /tts) ───────────────
     async function speakNarrator() {
       const btn = document.getElementById('narrator-tts-btn');
@@ -2784,13 +2790,14 @@
 
       const clean = text.textContent.replace(/\s+/g, ' ').trim();
       if (!clean) return;
+      const lang = detectTtsLang(clean);
 
       if (btn) btn.classList.add('is-speaking');
       try {
         const resp = await fetch(`${API_BASE}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: clean, lang: 'th' }),
+          body: JSON.stringify({ text: clean, lang }),
         });
         if (!resp.ok) throw new Error(`tts ${resp.status}`);
         const blob = await resp.blob();
@@ -2817,8 +2824,11 @@
       }
     }
 
-    // ─── A1 lecture audio (gTTS via /tts) — audio-only, no visible text ───
+
+
+    // A1 lecture audio (gTTS via /tts) — audio-only, no visible text
     async function playA1Audio() {
+
       const btn = document.getElementById('a1-listen-btn');
       const label = document.getElementById('a1-audio-label');
       const text = (window.__a1Text || '').trim();
@@ -2842,11 +2852,12 @@
 
       if (btn) btn.classList.add('is-playing');
       if (label) label.textContent = 'กำลังโหลดเสียง…';
+      const lang = detectTtsLang(text);
       try {
         const resp = await fetch(`${API_BASE}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, lang: 'th' }),
+          body: JSON.stringify({ text, lang }),
         });
         if (!resp.ok) throw new Error(`tts ${resp.status}`);
         const blob = await resp.blob();
