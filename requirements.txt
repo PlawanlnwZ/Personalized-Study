@@ -17,3 +17,4 @@ gtts>=2.5.0                 # text-to-speech (/tts)
 youtube-transcript-api>=1.2.4
 # Transcript fallback is Gemini (google-genai above), not Whisper — no torch, Render-safe,
 # and far better Thai accuracy. _fetch_gemini_transcript needs GEMINI_API_KEY at runtime.
+slowapi
