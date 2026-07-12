@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware   # เพิ่มบรรทัดนี้
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -49,9 +50,10 @@ from dspy_module import (
 app = FastAPI(title="VARK Study API", version="1.0.0")
 
 # ── Rate limiting (per-IP) ──────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -320,7 +322,8 @@ async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dic
 
 @app.get("/")
 @app.get("/index.html")
-async def root():
+@limiter.limit("30/minute")
+async def root(request: Request):
     return FileResponse("public/index.html")
 
 
