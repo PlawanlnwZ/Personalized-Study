@@ -497,7 +497,7 @@ class VARKProjector(dspy.Signature):
         desc="""
     Generate a comprehensive learning module based on the provided context/PDF by strictly adhering to the following rules and absolute constraints:
     1. Language Consistency:
-    - Use the same language as the context/PDF. If the context is in English, the entire output must be written in English. Maintain technical terms or source examples in their original language as required by the context.
+    - Use the same language as the context/PDF. If the context is in Thai, the entire output must be written in Thai. Maintain technical terms or source examples in their original language as required by the context.
 
     2. Completeness and Length (Highest Priority):
     - Cover every key point and concept present in the context. Do not omit, truncate, or over-summarize any information. Prefer rich, detailed explanations with examples over terse bullet points.
