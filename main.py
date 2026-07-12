@@ -13,10 +13,9 @@ import httpx
 import asyncio
 import uuid
 from fastapi import BackgroundTasks
-from fastapi import Request
 from datetime import datetime
 from typing import Optional
-
+from fastapi import FastAPI, Request, Response
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -25,6 +24,7 @@ from slowapi.middleware import SlowAPIMiddleware   # เพิ่มบรรท
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from dspy_module import (
@@ -61,6 +61,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def block_k6_bots(request: Request, call_next):
+    user_agent = request.headers.get("user-agent", "").lower()
+    
+    # Check if the User-Agent contains 'k6'
+    if "k6" in user_agent:
+        return JSONResponse(
+            status_code=403, 
+            content={"detail": "Access denied."}
+        )
+        
+    response = await call_next(request)
+    return response
 
 # Serve static frontend files from ./public
 app.mount("/static", StaticFiles(directory="public"), name="static")
