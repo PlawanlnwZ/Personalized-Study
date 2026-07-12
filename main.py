@@ -13,10 +13,14 @@ import httpx
 import asyncio
 import uuid
 from fastapi import BackgroundTasks
+from fastapi import Request
 from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -43,6 +47,11 @@ from dspy_module import (
 # App Setup
 # ──────────────────────────────────────────────
 app = FastAPI(title="VARK Study API", version="1.0.0")
+
+# ── Rate limiting (per-IP) ──────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -333,7 +342,8 @@ async def get_config():
 
 
 @app.post("/tts")
-async def text_to_speech(body: dict):
+@limiter.limit("20/minute")
+async def text_to_speech(request: Request, body: dict):
     """
     gTTS — รับ { "text": "...", "lang": "th" } แล้วคืน audio/mpeg (mp3)
     ใช้ Google Translate TTS endpoint ผ่าน gtts library (ไม่ต้องใช้ API key)
@@ -549,7 +559,8 @@ class QuizRequest(BaseModel):
 
 
 @app.post("/quiz")
-async def generate_quiz(req: QuizRequest):
+@limiter.limit("15/minute")
+async def generate_quiz(request: Request, req: QuizRequest):
     """
     สร้าง MCQ จาก section content + VARK profile
     คืน JSON array ของคำถาม (validated)
@@ -607,7 +618,8 @@ class AdaptRequest(BaseModel):
 
 
 @app.post("/adapt")
-async def adapt(req: AdaptRequest):
+@limiter.limit("10/minute")
+async def adapt(request: Request, req: AdaptRequest):
     """
     Adaptive loop: from the graded quiz `results`, re-teach ONLY the concepts the learner
     missed. Returns targeted remediation Markdown (empty + mastered=True if nothing wrong).
@@ -721,7 +733,9 @@ async def _run_generation_job(job_id: str, pdf_bytes: bytes, vark_style: str, to
 
 
 @app.post("/generate/start")
+@limiter.limit("15/minute")
 async def generate_start(
+    request: Request,          # <-- required by slowapi, must be named `request`
     pdf: UploadFile = File(...),
     vark_style: str = Form(...),
     topic: str = Form(""),
@@ -736,7 +750,8 @@ async def generate_start(
 
 
 @app.get("/generate/status/{job_id}")
-async def generate_status(job_id: str):
+@limiter.limit("60/minute")
+async def generate_status(request: Request, job_id: str):
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
