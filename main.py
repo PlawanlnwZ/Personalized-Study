@@ -113,13 +113,12 @@ async def startup_event():
 async def extract_pdf_text(pdf_bytes: bytes) -> str:
     """
     สกัดข้อความจาก PDF bytes
-    ลองใช้ pymupdf (fitz) ก่อน — เร็วกว่าและไม่มี FontBBox warning
-    ถ้าไม่มีให้ fallback ไป pdfminer พร้อม suppress warning
+    ลองใช้ pymupdf
     """
-    # ── Strategy 1: pymupdf (fitz) ──────────────────────────────
+    # ── Strategy 1: pymupdf ──────────────────────────────
     try:
-        import fitz  # pymupdf
-        doc   = fitz.open(stream=pdf_bytes, filetype="pdf")
+        import pymupdf 
+        doc   = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         parts = [page.get_text("text") for page in doc]
         doc.close()
         text  = "\n".join(parts).strip()
