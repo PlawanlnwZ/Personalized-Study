@@ -339,7 +339,10 @@ async def filter_videos_by_relevance(videos: list[dict], topic: str) -> list[dic
 async def root(request: Request):
     return FileResponse("public/index.html")
 
-
+@app.get("/ping")
+async def ping():
+    return {"ok": True}
+    
 @app.get("/study")
 @app.get("/study.html")
 async def study():
