@@ -62,6 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Countering k6 blocking the request so no one can bomb my website
 @app.middleware("http")
 async def block_k6_bots(request: Request, call_next):
     user_agent = request.headers.get("user-agent", "").lower()

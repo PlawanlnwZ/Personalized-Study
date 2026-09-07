@@ -306,12 +306,12 @@ GENERATOR_MODELS: dict[str, dict] = {
         "max_tokens": 16384,   # Typhoon API hard cap
         "temperature": 0.7,
     },
-    "GPTOSS": {
-        "model": "openai/openai/gpt-oss-120b",
-        "api_base": "https://integrate.api.nvidia.com/v1",
-        "api_key_env": "NVIDIA_API_KEY",
+    "OpenWebUI": {
+        "model": "openai/siam-codex-flash-censored-1.0:latest",
+        "api_base": "https://chatbot.siamcodex.com/api",
+        "api_key_env": "OPENWEBUI_API_KEY",
         "max_tokens": 16384,
-        "temperature": 0.7,
+        "temperature": 0.7
     },
     # "Nemotron3-Ultra": {
     #     "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -935,7 +935,7 @@ class VARKJudgeScore(dspy.Signature):
     7–8  = Excellent/Good: Solid, highly accurate, and complete. This is the EXPECTED score 
         for high-quality generation with no obvious errors.
     4–6  = Average/Mediocre: Present but generic, uses shallow/robotic explanations, 
-        or contains minor formatting inconsistencies.
+        or contains minor formatting inconsistencies or multilingual models unexpectedly output Mandarin Chinese instead of a extracted language.
         
     Treat the following as serious quality defects that pull a criterion DOWN
     into the mediocre band or lower (the more severe or numerous, the lower) —
