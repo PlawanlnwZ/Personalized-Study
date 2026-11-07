@@ -305,14 +305,7 @@ GENERATOR_MODELS: dict[str, dict] = {
         "api_key_env": "TYPHOON_API_KEY",
         "max_tokens": 16384,   # Typhoon API hard cap
         "temperature": 0.7,
-    },
-    "OpenWebUI": {
-        "model": "openai/siam-codex-flash-censored-1.0:latest",
-        "api_base": "https://chatbot.siamcodex.com/api",
-        "api_key_env": "OPENWEBUI_API_KEY",
-        "max_tokens": 16384,
-        "temperature": 0.7
-    },
+    }
     # "Nemotron3-Ultra": {
     #     "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
     #     "api_base": "https://openrouter.ai/api/v1",
